@@ -51,7 +51,7 @@ const SUB_COMMAND_ID_FLOW_CONTROL_UNSUBSCRIBE: u8 = 0x02;
 /// Represents a Direct Commands packet (frame type 0x32).
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct DirectCommands {
+pub struct DirectCommand {
     pub dst_addr: u8,
     pub src_addr: u8,
     pub payload: CommandPayload,
@@ -175,7 +175,7 @@ impl defmt::Format for CommandAck {
     }
 }
 
-impl CrsfPacket for DirectCommands {
+impl CrsfPacket for DirectCommand {
     const PACKET_TYPE: PacketType = PacketType::Command;
     // dst, src, cmd_id, crc
     const MIN_PAYLOAD_SIZE: usize = 4;
@@ -615,10 +615,10 @@ impl<'a> TryFrom<&'a [u8]> for CommandAck {
 mod tests {
     use super::*;
 
-    fn test_round_trip(packet: &DirectCommands) {
+    fn test_round_trip(packet: &DirectCommand) {
         let mut buffer = [0u8; 64];
         let len = packet.to_bytes(&mut buffer).unwrap();
-        let round_trip = DirectCommands::from_bytes(&buffer[..len]).unwrap();
+        let round_trip = DirectCommand::from_bytes(&buffer[..len]).unwrap();
         assert_eq!(packet, &round_trip);
         // make sure buffer overflow handled as proper error
         let mut small_buffer = [0u8; 3];
@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn test_fc_command_force_disarm() {
-        test_round_trip(&DirectCommands {
+        test_round_trip(&DirectCommand {
             dst_addr: 0xC8,
             src_addr: 0xEA,
             payload: CommandPayload::Fc(FcCommand::ForceDisarm),
@@ -637,7 +637,7 @@ mod tests {
 
     #[test]
     fn test_osd_send_buttons() {
-        test_round_trip(&DirectCommands {
+        test_round_trip(&DirectCommand {
             dst_addr: 0x80,
             src_addr: 0xEA,
             payload: CommandPayload::Osd(OsdCommand::SendButtons(0b10101000)),
@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn test_vtx_set_frequency() {
-        test_round_trip(&DirectCommands {
+        test_round_trip(&DirectCommand {
             dst_addr: 0xCE,
             src_addr: 0xEA,
             payload: CommandPayload::Vtx(VtxCommand::SetFrequency(5800)),
@@ -655,7 +655,7 @@ mod tests {
 
     #[test]
     fn test_crossfire_model_selection() {
-        test_round_trip(&DirectCommands {
+        test_round_trip(&DirectCommand {
             dst_addr: 0xEE,
             src_addr: 0xEA,
             payload: CommandPayload::Crossfire(CrossfireCommand::ModelSelection(5)),
@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn test_flow_control_subscribe() {
-        test_round_trip(&DirectCommands {
+        test_round_trip(&DirectCommand {
             dst_addr: 0xC8,
             src_addr: 0xEA,
             payload: CommandPayload::FlowControl(FlowControlCommand::Subscribe {
@@ -676,7 +676,7 @@ mod tests {
 
     #[test]
     fn test_command_ack() {
-        test_round_trip(&DirectCommands {
+        test_round_trip(&DirectCommand {
             dst_addr: 0xEA,
             src_addr: 0xEE,
             payload: CommandPayload::Ack(CommandAck::new(0x10, 0x01, 1, b"OK").unwrap()),
@@ -686,13 +686,13 @@ mod tests {
     #[test]
     fn test_from_bytes_invalid_crc() {
         let data: [u8; 5] = [0xC8, 0xEA, 0x01, 0x01, 0x00]; // wrong crc
-        let result = DirectCommands::from_bytes(&data);
+        let result = DirectCommand::from_bytes(&data);
         assert!(matches!(result, Err(CrsfParsingError::InvalidPayload)));
     }
 
     #[test]
     fn test_small_buffer() {
-        let packet = DirectCommands {
+        let packet = DirectCommand {
             dst_addr: 0xC8,
             src_addr: 0xEA,
             payload: CommandPayload::Fc(FcCommand::ForceDisarm),

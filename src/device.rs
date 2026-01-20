@@ -1,44 +1,133 @@
 //! High-level device and parameter management API.
 //!
-//! This module provides abstractions for discovering CRSF devices, managing their parameters,
-//! and handling the chunked parameter transfer protocol described in the CRSF specification.
+//! This module provides abstractions for discovering CRSF devices, enumerating their configurable
+//! parameters, and reading/writing parameter values. It implements the CRSF Extended Device Protocol
+//! used by ExpressLRS, Betaflight, ArduPilot, and other CRSF-compliant systems.
 //!
-//! # Overview
+//! # CRSF Parameter Protocol
 //!
-//! The main types provided by this module are:
+//! CRSF devices expose parameters through a hierarchical structure:
+//! - **Root folder**: Parameter 0, serves as the entry point with children listed in its `value` field
+//! - **Folders**: Organizational nodes that contain child parameters
+//! - **Leaf parameters**: Actual configuration values (Float, TextSelection, String, VTX, etc.)
 //!
-//! - [`Parameter`] - Represents a parameter with its metadata and current value
-//! - [`Device`] - Represents a discovered CRSF device with its information and parameters
-//! - [`DeviceManager`] - Manages device discovery, parameter reading/writing, and state
+//! Parameters use chunked transfer for large metadata, with each [`ParameterSettingsEntry`]
+//! potentially spanning multiple packets. The protocol works in a request/response pattern:
+//! 1. Discover devices via broadcast [DevicePing]
+//! 2. Receive [DeviceInformation] with parameter count and version
+//! 3. Request parameters sequentially via [ParameterRead]
+//! 4. Receive [ParameterSettingsEntry] with metadata and current value
+//! 5. Write parameters via [ParameterWrite]
 //!
-//! # Example
+//! # Device Roles in CRSF Network
+//!
+//! | Role | Address | Typical Usage |
+//! |------|---------|---------------|
+//! | **Handset/Controller** | 0xEE | Runs this API to configure TX modules and read RX status |
+//! | **Transmitter (TX)** | 0xEA | Exposes RF parameters (power, mode, telemetry rate) |
+//! | **Receiver (RX)** | 0xEC | May expose PWM/serial output modes |
+//! | **Flight Controller** | 0xEF | Exposes flight modes, VTX control, etc. |
+//!
+//! # Integration Patterns
+//!
+//! ## Handset Application (e.g., EdgeTX/OpenTX Lua script)
+//! Discover TX module parameters, display UI, write configuration:
 //!
 //! ```no_run
 //! use uf_crsf::device::{DeviceManager, DeviceManagerConfig};
 //! use uf_crsf::parser::CrsfParser;
 //! use uf_crsf::packets::{Packet, PacketAddress};
 //!
+//! // Initialize manager
 //! let config = DeviceManagerConfig::default();
-//! let mut manager = DeviceManager::new(config);
+//! let mut manager = DeviceManager::new(config).with_address(PacketAddress::Handset);
 //! let mut parser = CrsfParser::new();
 //!
-//! // Process incoming bytes
-//! # let incoming_data: &[u8] = &[];
-//! for packet_result in parser.iter_packets(incoming_data) {
-//!     if let Ok(packet) = packet_result {
-//!         manager.handle_packet(&packet);
+//! // In your UART RX loop (e.g., EdgeTX serial.read())
+//! loop {
+//!     let incoming_data = read_from_uart(); // Your UART read function
+//!     for packet_result in parser.iter_packets(&incoming_data) {
+//!         if let Ok(packet) = packet_result {
+//!             manager.handle_packet(&packet);
+//!         }
 //!     }
-//! }
 //!
-//! // Check if devices were discovered
-//! let device_addrs: heapless::Vec<_, 8> = manager.devices().collect();
-//! if let Some(&device_id) = device_addrs.first() {
-//!     // Request parameters from a device
-//!     if let Some(request) = manager.request_all_parameters(device_id) {
-//!         // Send request over the wire...
+//!     // Send any pending pings or retries
+//!     manager.update_time(current_time_ms());
+//!     if let Some(ping) = manager.send_device_ping() {
+//!         write_to_uart(&ping); // Your UART write function
+//!     }
+//!
+//!     // Request all parameters once device discovered
+//!     let device_addrs: heapless::Vec<_, 8> = manager.devices().collect();
+//!     if let Some(&tx_addr) = device_addrs.first() {
+//!         if let Some(request) = manager.request_all_parameters(tx_addr) {
+//!             write_to_uart(&request);
+//!         }
 //!     }
 //! }
 //! ```
+//!
+//! ## Embedded Microcontroller (e.g., STM32, ESP32)
+//! On embedded systems without an allocator, the UART interface is typically polled
+//! in an event loop or handled in an interrupt-driven ring buffer. The CRSF parser
+//! processes bytes as they arrive:
+//!
+//! ```no_run
+//! # use uf_crsf::device::DeviceManager;
+//! # use uf_crsf::parser::CrsfParser;
+//! // In your main loop or UART ISR
+//! static mut RX_BUFFER: [u8; 128] = [0; 128];
+//! static mut RX_LEN: usize = 0;
+//!
+//! fn uart_isr() {
+//!     // Read byte from UART hardware into buffer
+//!     // ... hardware-specific code ...
+//!     # unsafe {}
+//! }
+//!
+//! fn main_loop() {
+//!     let mut manager = DeviceManager::default();
+//!     let mut parser = CrsfParser::new();
+//!
+//!     loop {
+//!         // Check if data available from UART
+//!         # let data: &[u8] = &[];
+//!         unsafe {
+//!             if RX_LEN > 0 {
+//!                 for packet_result in parser.iter_packets(&RX_BUFFER[..RX_LEN]) {
+//!                     if let Ok(packet) = packet_result {
+//!                         manager.handle_packet(&packet);
+//!                     }
+//!                 }
+//!                 RX_LEN = 0;
+//!             }
+//!         }
+//!
+//!         // Process time-based tasks every 1-10ms
+//!         manager.update_time(get_monotonic_ms());
+//!         if let Some(packet) = manager.send_device_ping() {
+//!             uart_write_blocking(&packet);
+//!         }
+//!
+//!         // Handle retries for pending parameter requests
+//!         let retries = manager.process_timeouts();
+//!         for packet in retries {
+//!             uart_write_blocking(&packet);
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! # Architecture Notes
+//!
+//! CRSF is a half-duplex protocol, but in practice it's wired as full-duplex with
+//! separate TX and RX lines. This allows continuous polling without waiting for responses.
+//!
+//! The [DeviceManager] tracks pending requests with timeouts and automatic retries.
+//! Call [`DeviceManager::update_time()`] regularly (e.g., every 1-10ms) to enable
+//! timeout detection, and call [`DeviceManager::process_timeouts()`] to generate
+//! retry packets.
 
 use crate::constants;
 use crate::packets::{
@@ -67,14 +156,27 @@ const DEFAULT_TIMEOUT_MS: u32 = 500;
 /// Default retry count for parameter requests.
 const DEFAULT_RETRY_COUNT: u8 = 3;
 
-/// Configuration for the DeviceManager.
+/// Configuration for [DeviceManager] timeouts and retry behavior.
 #[derive(Debug, Clone, Copy)]
 pub struct DeviceManagerConfig {
     /// Timeout for parameter requests in milliseconds.
+    ///
+    /// If a device doesn't respond within this window, the request is retried up to
+    /// [Self::retry_count] times before being abandoned. For reliable serial links,
+    /// 500ms is typical. Noisy environments may need 1000ms or more.
     pub timeout_ms: u32,
-    /// Maximum number of retries for failed requests.
+    /// Maximum number of retries for failed parameter requests.
+    ///
+    /// After [Self::timeout_ms] elapses without a response, the request is retried.
+    /// After this many retries, the request is abandoned. For production systems,
+    /// 3-5 retries provide a good balance between reliability and responsiveness.
     pub retry_count: u8,
     /// Device ping interval in milliseconds (0 = disabled).
+    ///
+    /// Controls how often [DeviceManager::send_device_ping()] broadcasts discovery
+    /// requests. Setting to 0 disables automatic pinging - you must manually send
+    /// pings. For handheld controllers, 1000-2000ms is reasonable. For embedded
+    /// systems with tight latency requirements, consider 500ms or manual triggering.
     pub device_ping_interval_ms: u32,
 }
 
@@ -88,18 +190,94 @@ impl Default for DeviceManagerConfig {
     }
 }
 
-/// Represents a parameter with its metadata and current value.
+/// Represents a CRSF parameter with metadata and current value.
+///
+/// Parameters are the primary mechanism for configuring CRSF devices. They form a
+/// hierarchical tree structure starting with a root folder (ID 0). Each parameter
+/// has a unique ID, parent folder reference, name, and typed value data.
+///
+/// # Parameter Hierarchy
+///
+/// In ExpressLRS, parameters are organized as:
+/// ```text
+/// [0] ROOT (Folder, children=[1, 2, 3])
+/// ├── [1] Connection (Folder, children=[10, 11, 12])
+/// │   ├── [10] Link Quality (Info)
+/// │   └── [11] RF Mode (TextSelection: Dynamic, Fixed...)
+/// └── [2] VTX (Folder, children=[20, 21])
+///     ├── [20] Band (TextSelection: A, B, E, R...)
+///     └── [21] Power (TextSelection: 25mW, 200mW...)
+/// ```
+///
+/// To navigate the hierarchy:
+/// 1. Get the root folder via [Device::root_folder()]
+/// 2. Read its child IDs from `folder_children()`
+/// 3. Recursively traverse children
+///
+/// # Parameter Types
+///
+/// The `data` field contains the type-specific information:
+/// - **Folder**: No value, just organizational structure with child IDs
+/// - **Float**: Numeric value with min/max/default, step size, units (e.g., RF power in mW)
+/// - **TextSelection**: Enum-style value with string options (e.g., RF mode: "Dynamic", "Fixed")
+/// - **String**: Free-form text (rare, used for bind phrases)
+/// - **Info**: Read-only string for display (e.g., firmware version)
+/// - **Command**: Trigger to execute an action (e.g., "Bind", "VTX Save")
+/// - **VTX**: Band/channel/power selection for video transmitters
+///
+/// # Usage Patterns
+///
+/// ## Displaying Parameters (Handset UI)
+/// ```no_run
+/// # use uf_crsf::device::{Device, DeviceManager};
+/// # use uf_crsf::packets::{Packet, PacketAddress};
+/// fn display_device_parameters(device: &Device) {
+///     if let Some(root) = device.root_folder() {
+///         if let Some(children) = root.folder_children() {
+///             for &child_id in children {
+///                 if let Some(child) = device.get_parameter(child_id) {
+///                     if child.is_folder() {
+///                         // Create menu group
+///                         println!("[{}] {}", child_id, child.name);
+///                     } else {
+///                         // Display parameter with value
+///                         if let Some(ref data) = child.data {
+///                             println!("[{}] {}: {:?}", child_id, child.name, data);
+///                         }
+///                     }
+///                 }
+///             }
+///         }
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parameter {
-    /// Parameter number/ID.
+    /// Unique parameter ID within a device.
+    ///
+    /// IDs are sequential starting from 0 (root folder). Use this ID when requesting
+    /// parameter details via [DeviceManager::request_parameter()] or writing values
+    /// via [DeviceManager::write_parameter()].
     pub id: u8,
-    /// Parent folder parameter number (0 for root).
+    /// Parent folder parameter ID.
+    ///
+    /// A value of 0 indicates this is a direct child of the root folder. To traverse
+    /// the hierarchy, use [Device::parameters_in_folder()] with the parent ID.
     pub parent: u8,
-    /// Parameter name.
+    /// Human-readable parameter name.
+    ///
+    /// Typically short and descriptive (e.g., "TX Power", "RF Mode", "VTX Band").
+    /// Names are limited to 127 characters by the CRSF protocol.
     pub name: String<128>,
-    /// Whether this parameter is hidden.
+    /// Whether this parameter should be hidden from normal UI.
+    ///
+    /// Advanced or debug parameters may be marked hidden. Handset applications can
+    /// optionally show hidden parameters in a developer mode.
     pub hidden: bool,
-    /// Parameter data and value.
+    /// Type-specific parameter data and current value.
+    ///
+    /// Contains the parameter's type and its current value (for readable/writable types).
+    /// Folders and Info types may have minimal data.
     pub data: Option<ParameterData>,
 }
 
@@ -135,26 +313,97 @@ impl Parameter {
     }
 }
 
-/// Represents a discovered CRSF device.
+/// Represents a discovered CRSF device with its parameters.
+///
+/// A Device represents any CRSF-capable hardware on the bus that exposes configurable
+/// parameters. This is commonly used in ExpressLRS TX modules, receivers, and flight
+/// controllers to expose settings for external configuration.
+///
+/// # Device Identification
+///
+/// Devices are identified by their [PacketAddress] and unique serial number:
+/// - **Transmitter (0xEA)**: ExpressLRS modules, serial typically 0x454C5253 ("ELRS")
+/// - **Receiver (0xEC)**: ExpressLRS receivers
+/// - **Flight Controller (0xEF)**: Betaflight, ArduPilot
+///
+/// # Device Lifecycle
+///
+/// 1. **Discovery**: Broadcast [DevicePing] → receive [DeviceInformation]
+/// 2. **Enumeration**: Request parameters sequentially starting from ID 0
+/// 3. **Loading**: Receive [ParameterSettingsEntry] packets with metadata
+/// 4. **Configuration**: Read current values, write new values via [ParameterWrite]
+///
+/// # Parameter Versioning
+///
+/// The `parameter_version` field tracks the parameter schema version. When this changes,
+/// the parameter structure (IDs, types, defaults) may have changed. Applications should
+/// check this version and clear cached parameter data when it increments.
+///
+/// # Example Usage
+///
+/// ```no_run
+/// # use uf_crsf::device::Device;
+/// # use uf_crsf::packets::{Packet, PacketAddress};
+/// fn configure_tx_power(device: &mut Device) {
+///     // Find the TX Power parameter
+///     for param in device.iter_parameters() {
+///         if param.name.contains("Power") && !param.is_folder() {
+///             if let Some(data) = &param.data {
+///                 println!("TX Power: {:?}", data);
+///                 // You would generate a ParameterWrite packet here
+///             }
+///         }
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct Device {
-    /// Device address.
+    /// CRSF address of this device.
+    ///
+    /// Determines the device's role in the CRSF network. Use this address when
+    /// sending parameter requests or writes to this device.
     pub address: PacketAddress,
-    /// Device name.
+    /// Human-readable device name (up to 42 characters).
+    ///
+    /// Examples: "ELRS TX", "Betaflight", "ArduPilot". Display this to users
+    /// to identify which device they're configuring.
     pub name: String<43>,
-    /// Serial number.
+    /// Unique serial number identifying this specific device.
+    ///
+    /// For ExpressLRS TX modules, this is typically 0x454C5253 ("ELRS").
+    /// Used to correlate [DeviceInformation] responses with discovery requests.
     pub serial_number: u32,
-    /// Hardware ID.
+    /// Hardware identifier (vendor-specific).
+    ///
+    /// Often encodes the board type or hardware revision. Format varies by
+    /// manufacturer - consult vendor documentation for interpretation.
     pub hardware_id: u32,
-    /// Firmware ID.
+    /// Firmware identifier.
+    ///
+    /// Encodes firmware version and variant. Format is vendor-specific. For
+    /// ExpressLRS, this helps identify if the device supports certain features.
     pub firmware_id: u32,
-    /// Total number of parameters.
+    /// Total number of parameters exposed by this device.
+    ///
+    /// Use this to determine when parameter enumeration is complete. When
+    /// `parameters.len() == parameters_total`, all parameters have been loaded.
     pub parameters_total: u8,
-    /// Parameter version number.
+    /// Parameter protocol version.
+    ///
+    /// When this changes, the parameter schema may have been updated. Applications
+    /// should invalidate cached parameters when this version differs from the last
+    /// known version.
     pub parameter_version: u8,
-    /// Loaded parameters.
+    /// Discovered parameters indexed by their ID.
+    ///
+    /// Parameters are loaded incrementally via [DeviceManager::request_parameter()].
+    /// Use [Device::get_parameter()] to retrieve by ID, or [Device::iter_parameters()]
+    /// to enumerate all loaded parameters.
     pub parameters: FnvIndexMap<u8, Parameter, MAX_PARAMETERS>,
-    /// Whether all parameters have been loaded.
+    /// Indicates if all parameters have been successfully loaded.
+    ///
+    /// Set to `true` when `parameters.len() == parameters_total`. Applications should
+    /// wait for this flag before displaying the full parameter tree to users.
     pub parameters_loaded: bool,
 }
 
@@ -250,28 +499,134 @@ struct ChunkAssembly {
     chunks_remaining: u8,
 }
 
-/// Device manager for discovering and managing CRSF devices and their parameters.
+/// High-level manager for discovering CRSF devices and accessing their parameters.
 ///
-/// This struct maintains a list of discovered devices and provides methods for:
-/// - Device discovery via ping/response
-/// - Parameter enumeration and reading
-/// - Parameter writing
-/// - Chunked parameter transfer reassembly
-/// - Timeout and retry handling
+/// [DeviceManager] orchestrates the complete parameter protocol workflow:
+/// - Broadcasting discovery pings to find devices on the bus
+/// - Requesting parameter metadata via chunked transfer
+/// - Tracking pending requests with automatic timeout and retry
+/// - Writing parameter values to devices
+/// - Maintaining device state and parameter caches
+///
+/// # Thread Safety
+///
+/// [DeviceManager] is not thread-safe and must be accessed from a single thread
+/// or context. For multi-threaded applications, wrap it in a mutex or use
+/// message passing to funnel all CRSF I/O to a single management thread.
+///
+/// # Time Management
+///
+/// The manager relies on [DeviceManager::update_time()] being called periodically
+/// to track request timeouts. In embedded systems, call this from your main loop
+/// or a timer ISR every 1-10ms. In hosted applications, use a system monotonic clock.
+///
+/// # Typical Usage Flow
+///
+/// ```no_run
+/// # use uf_crsf::device::{DeviceManager, DeviceManagerConfig};
+/// # use uf_crsf::parser::CrsfParser;
+/// # use uf_crsf::packets::PacketAddress;
+/// let mut manager = DeviceManager::default().with_address(PacketAddress::Handset);
+/// let mut parser = CrsfParser::new();
+///
+/// // Main event loop
+/// loop {
+///     // 1. Read bytes from UART
+///     let bytes = uart_read();
+///
+///     // 2. Parse and feed packets to manager
+///     for packet in parser.iter_packets(&bytes) {
+///         if let Ok(pkt) = packet {
+///             manager.handle_packet(&pkt);
+///         }
+///     }
+///
+///     // 3. Update time for timeout handling
+///     manager.update_time(current_time_ms());
+///
+///     // 4. Send device discovery pings (if configured)
+///     if let Some(ping) = manager.send_device_ping() {
+///         uart_write(&ping);
+///     }
+///
+///     // 5. Send any retries for timed-out requests
+///     for retry in manager.process_timeouts() {
+///         uart_write(&retry);
+///     }
+///
+///     // 6. Once device discovered, request its parameters
+///     for addr in manager.devices() {
+///         if let Some(req) = manager.request_all_parameters(addr) {
+///             uart_write(&req);
+///         }
+///     }
+///
+///     // 7. Check parameter load completion
+///     for addr in manager.devices() {
+///         if let Some(device) = manager.get_device(addr) {
+///             if device.parameters_loaded {
+///                 // Display parameters or apply configuration
+///                 display_parameters(device);
+///             }
+///         }
+///     }
+///
+///     // Sleep or yield to avoid busy-waiting
+///     sleep_ms(10);
+/// }
+/// ```
+///
+/// # Hardware Integration
+///
+/// **Embedded Microcontrollers (STM32, ESP32, nRF52):**
+/// - Run this in a high-priority task or main loop
+/// - UART RX in ISR into a ring buffer, poll buffer in loop
+/// - Use hardware timers for monotonic time tracking
+/// - Ensure UART is configured for 115200-420000 baud (CRSF default)
+///
+/// **Linux/Windows Applications:**
+/// - Use the `serial` crate with `tokio-serial` for async
+/// - Run in a dedicated task/thread with async/await
+/// - Use `std::time::Instant` or `tokio::time` for timing
+///
+/// **EdgeTX/OpenTX Lua Scripts:**
+/// - Use the `serial` API to read/write CRSF packets
+/// - Call update/time functions from script tick handler
+/// - Note: Lua may have latency constraints, adjust timeouts accordingly
 pub struct DeviceManager {
-    /// Configuration.
+    /// Timeout and retry configuration.
     config: DeviceManagerConfig,
-    /// Own device address.
+    /// This device's CRSF address.
+    ///
+    /// Must match the role of the device running this code. For a controller
+    /// handset, use [PacketAddress::Handset]. This address is used as the source
+    /// address when sending parameter requests.
     pub own_address: PacketAddress,
-    /// Discovered devices indexed by address.
+    /// Discovered devices indexed by their CRSF address.
+    ///
+    /// Devices are added when [DeviceInformation] packets are received. Access via
+    /// [DeviceManager::devices()], [DeviceManager::get_device()], or
+    /// [DeviceManager::get_device_mut()].
     devices: FnvIndexMap<PacketAddress, Device, MAX_DEVICES>,
-    /// Pending parameter requests.
+    /// Pending parameter requests awaiting responses.
+    ///
+    /// Tracks in-flight [ParameterRead] and [ParameterWrite] requests with their
+    /// timestamps for timeout detection. Managed automatically by [DeviceManager].
     pending_requests: Vec<PendingRequest, MAX_PENDING_REQUESTS>,
-    /// Current chunk assembly state.
+    /// State for reassembling chunked parameter responses.
+    ///
+    /// CRSF parameters larger than the packet size are sent in multiple chunks.
+    /// This field tracks the reassembly state for the current chunk sequence.
     chunk_assembly: Option<ChunkAssembly>,
-    /// Monotonic timestamp counter (incremented by caller).
+    /// Monotonic timestamp for timeout tracking.
+    ///
+    /// Updated via [DeviceManager::update_time()]. All pending requests compare
+    /// their timestamp against this value to detect timeouts.
     current_time: u32,
-    /// Last device ping timestamp.
+    /// Timestamp of the last device discovery ping.
+    ///
+    /// Used to enforce [DeviceManagerConfig::device_ping_interval_ms] to avoid
+    /// flooding the bus with discovery packets.
     last_ping_time: u32,
 }
 
@@ -295,9 +650,34 @@ impl DeviceManager {
         self
     }
 
-    /// Updates the internal monotonic time counter.
+    /// Updates the internal time tracker for timeout detection.
     ///
-    /// Call this periodically with a millisecond timestamp to enable timeout functionality.
+    /// **Must be called periodically** (every 1-10ms recommended) with a monotonically
+    /// increasing millisecond timestamp. This enables the manager to detect when
+    /// parameter requests have timed out and need retrying.
+    ///
+    /// # Time Sources
+    ///
+    /// - **Embedded**: Use a hardware timer or DWT cycle counter
+    /// - **Linux**: Use `std::time::Instant::elapsed().as_millis() as u32`
+    /// - **Tokio**: Use `tokio::time::Instant`
+    /// - **EdgeTX**: Use `getTimer()`
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use uf_crsf::device::DeviceManager;
+    /// let mut manager = DeviceManager::default();
+    ///
+    /// // In your main loop or ISR
+    /// loop {
+    ///     manager.update_time(get_monotonic_ms());
+    ///
+    ///     // Process I/O and other tasks...
+    ///
+    ///     sleep_ms(1); // Call at least every 10ms
+    /// }
+    /// ```
     pub fn update_time(&mut self, time_ms: u32) {
         self.current_time = time_ms;
     }
@@ -317,9 +697,37 @@ impl DeviceManager {
         self.devices.get_mut(&addr)
     }
 
-    /// Handles an incoming CRSF packet.
+    /// Process an incoming CRSF packet and update device state.
     ///
-    /// This processes DevicePing, DeviceInformation, ParameterSettingsEntry, and ParameterWrite responses.
+    /// This is the main entry point for feeding CRSF data into the manager.
+    /// It handles parameter protocol packets and automatically updates
+    /// device and parameter state.
+    ///
+    /// # Handled Packet Types
+    ///
+    /// - [Packet::DeviceInformation]: Adds or updates a discovered device
+    /// - [Packet::ParameterSettingsEntry]: Updates parameter metadata/value
+    /// - [Packet::ParameterWrite]: Clears pending write requests
+    ///
+    /// # Usage
+    ///
+    /// Call this for each packet returned by [crate::parser::CrsfParser]:
+    ///
+    /// ```no_run
+    /// # use uf_crsf::device::DeviceManager;
+    /// # use uf_crsf::parser::CrsfParser;
+    /// # use uf_crsf::packets::Packet;
+    /// let mut manager = DeviceManager::default();
+    /// let mut parser = CrsfParser::new();
+    ///
+    /// // In your UART RX loop
+    /// let bytes = uart_read();
+    /// for packet_result in parser.iter_packets(&bytes) {
+    ///     if let Ok(packet) = packet_result {
+    ///         manager.handle_packet(&packet);
+    ///     }
+    /// }
+    /// ```
     pub fn handle_packet(&mut self, packet: &Packet) {
         match packet {
             Packet::DeviceInformation(info) => {
@@ -387,9 +795,45 @@ impl DeviceManager {
         }
     }
 
-    /// Sends a device ping to discover devices.
+    /// Generate a device discovery ping packet if it's time to send one.
     ///
-    /// Returns `Some` with the ping packet bytes if a ping should be sent.
+    /// This respects the [DeviceManagerConfig::device_ping_interval_ms] setting
+    /// and returns `None` if too soon since the last ping. Set the interval to
+    /// 0 to disable automatic pinging and manually trigger discovery.
+    ///
+    /// # When to Call
+    ///
+    /// Call this regularly (every 10-50ms) in your main loop or UART handling
+    /// code. The function handles rate limiting internally.
+    ///
+    /// # Discovery Process
+    ///
+    /// 1. Call this function to get a ping packet (when it returns `Some`)
+    /// 2. Send the packet bytes over UART to the CRSF bus
+    /// 3. All devices respond with [DeviceInformation] packets
+    /// 4. Call [DeviceManager::handle_packet()] for each response
+    /// 5. Devices are automatically added to the internal device list
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use uf_crsf::device::DeviceManager;
+    /// # use uf_crsf::packets::PacketAddress;
+    /// let mut manager = DeviceManager::default().with_address(PacketAddress::Handset);
+    ///
+    /// // In your main loop
+    /// loop {
+    ///     manager.update_time(get_monotonic_ms());
+    ///
+    ///     // Try to send discovery ping
+    ///     if let Some(ping) = manager.send_device_ping() {
+    ///         uart_write(&ping);
+    ///         println!("Sent device discovery ping");
+    ///     }
+    ///
+    ///     // Process responses...
+    /// }
+    /// ```
     pub fn send_device_ping(&mut self) -> Option<Vec<u8, { constants::CRSF_MAX_PACKET_SIZE }>> {
         if self.config.device_ping_interval_ms == 0 {
             return None;
@@ -414,10 +858,52 @@ impl DeviceManager {
         Some(vec)
     }
 
-    /// Requests all parameters from a device.
+    /// Initiates full parameter enumeration for a device.
     ///
-    /// Returns the first ParameterRead packet to send, or `None` if the device doesn't exist
-    /// or parameters are already being loaded.
+    /// Starts requesting parameters sequentially from ID 0 (the root folder) up to
+    /// `device.parameters_total`. After calling this, repeatedly check
+    /// [Device::parameters_loaded] or call this method again to get the next
+    /// parameter request packet.
+    ///
+    /// # Parameter Enumeration Flow
+    ///
+    /// 1. Call this method to get the first [ParameterRead] packet
+    /// 2. Send the packet to the device
+    /// 3. Receive [ParameterSettingsEntry] via [DeviceManager::handle_packet()]
+    /// 4. Call this method again to get the next parameter request
+    /// 5. Repeat until the device's `parameters_loaded` is true
+    ///
+    /// # Returns
+    ///
+    /// - `Some(packet)`: The next [ParameterRead] packet bytes to send
+    /// - `None`: Device doesn't exist or all parameters already loaded
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use uf_crsf::device::DeviceManager;
+    /// # use uf_crsf::packets::PacketAddress;
+    /// let mut manager = DeviceManager::default();
+    /// let tx_addr = PacketAddress::Transmitter;
+    ///
+    /// // In your main loop after device discovery
+    /// loop {
+    ///     // Request parameters until loaded
+    ///     if let Some(request) = manager.request_all_parameters(tx_addr) {
+    ///         uart_write(&request);
+    ///     }
+    ///
+    ///     // Check if loading complete
+    ///     if let Some(device) = manager.get_device(tx_addr) {
+    ///         if device.parameters_loaded {
+    ///             println!("Loaded {} parameters", device.parameters.len());
+    ///             break;
+    ///         }
+    ///     }
+    ///
+    ///     // Process packets and handle other tasks...
+    /// }
+    /// ```
     pub fn request_all_parameters(
         &mut self,
         device_addr: PacketAddress,
@@ -478,9 +964,47 @@ impl DeviceManager {
         Some(vec)
     }
 
-    /// Writes a parameter value to a device.
+    /// Writes a new value to a parameter on a device.
     ///
-    /// Returns the ParameterWrite packet bytes to send.
+    /// Generates a [ParameterWrite] packet to change a parameter's value. The
+    /// `data` bytes should be formatted according to the parameter's type:
+    ///
+    /// - **Float**: 4 bytes, little-endian f32
+    /// - **TextSelection**: Index of selected option (u8)
+    /// - **String**: UTF-8 string bytes
+    /// - **Folder**: Not writable
+    /// - **Command**: Any value triggers the command
+    ///
+    /// # Value Encoding
+    ///
+    /// The `data` byte array must match the parameter's type. For Float parameters,
+    /// encode the value as 4 little-endian bytes. For TextSelection, use the index
+    /// of the selected option in the parameter's options list.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(packet)`: The [ParameterWrite] packet bytes to send
+    /// - `None`: Device doesn't exist or packet serialization failed
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use uf_crsf::device::DeviceManager;
+    /// # use uf_crsf::packets::PacketAddress;
+    /// let mut manager = DeviceManager::default();
+    /// let tx_addr = PacketAddress::Transmitter;
+    ///
+    /// // Write TX Power parameter (ID 5, Float type)
+    /// // Value: 2000 mW
+    /// let power_value: f32 = 2000.0;
+    /// let mut data = [0u8; 4];
+    /// data.copy_from_slice(&power_value.to_le_bytes());
+    ///
+    /// if let Some(write_pkt) = manager.write_parameter(tx_addr, 5, &data) {
+    ///     uart_write(&write_pkt);
+    ///     println!("Sent TX Power write request");
+    /// }
+    /// ```
     pub fn write_parameter(
         &mut self,
         device_addr: PacketAddress,
@@ -610,15 +1134,7 @@ mod tests {
             0,
             ParameterDataType::Float as u8,
             "TX Power",
-            Some(ParameterData::Float {
-                value: 2000,
-                min: 0,
-                max: 10000,
-                default: 2000,
-                decimal_point: 0,
-                step_size: 100,
-                unit: String::try_from("mW").unwrap(),
-            }),
+            Some(),
         )
         .unwrap();
 
@@ -645,11 +1161,17 @@ mod tests {
             0,
             ParameterDataType::Folder as u8,
             "ROOT",
-            Some(ParameterData::Folder {
-                children: children.clone(),
-            }),
         )
-        .unwrap();
+        .unwrap()
+        .add_data(ParameterData::Float {
+            value: 2000,
+            min: 0,
+            max: 10000,
+            default: 2000,
+            decimal_point: 0,
+            step_size: 100,
+            unit: String::try_from("mW").unwrap(),
+        });
 
         let param = Parameter::from_entry(0, &entry);
         assert!(param.is_folder());

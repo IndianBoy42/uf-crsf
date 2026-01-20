@@ -2,20 +2,83 @@ use crate::packets::{CrsfPacket, PacketType};
 use crate::CrsfParsingError;
 use core::mem::size_of;
 
-/// Represents a Parameter Read packet (0x2C).
+/// Request to read a specific parameter from a CRSF device.
 ///
-/// Used to request a specific parameter from a device.
-/// This command is for re-requesting a parameter/chunk that didn't make it through the link.
+/// This packet (type 0x2C) is sent to a device to request parameter metadata and value.
+/// Devices respond with [ParameterSettingsEntry] packets containing the parameter's
+/// type, constraints, and current value.
+///
+/// # Chunked Parameter Transfer
+///
+/// Parameters with large metadata (long names, many options) are sent across multiple
+/// [ParameterSettingsEntry] packets. The `chunk_number` field identifies which chunk
+/// is being requested:
+/// - Chunk 0: Contains the primary parameter data and metadata
+/// - Chunks 1+: Additional data (e.g., continuation of long TextSelection options)
+///
+/// The [ParameterSettingsEntry::chunks_remaining] field indicates how many more
+/// chunks are available. The [DeviceManager] automatically handles chunk reassembly.
+///
+/// # Use Cases
+///
+/// **Handset Application:** Request all parameters sequentially starting from 0
+/// to discover the device's full parameter tree. The DeviceManager handles this
+/// automatically via [crate::device::DeviceManager::request_all_parameters()].
+///
+/// **Parameter Refresh:** If a parameter packet is corrupted or missed due to
+/// link issues, re-send the ParameterRead with the appropriate chunk number to
+/// recover it.
+///
+/// # CRSF Addressing
+///
+/// - `dst_addr`: The device being queried (e.g., [PacketAddress::Transmitter])
+/// - `src_addr`: Your device's address (e.g., [PacketAddress::Handset])
+///
+/// # Example
+///
+/// ```no_run
+/// # use uf_crsf::packets::parameter_read::ParameterRead;
+/// use uf_crsf::packets::PacketAddress;
+///
+/// // Request parameter 5 (TX Power) from the transmitter
+/// let read = ParameterRead::new(
+///     PacketAddress::Transmitter as u8,  // dst_addr
+///     PacketAddress::Handset as u8,       // src_addr
+///     5,   // parameter_number (TX Power)
+///     0,   // chunk_number (first chunk)
+/// ).unwrap();
+///
+/// let mut buffer = [0u8; 64];
+/// let len = read.to_bytes(&mut buffer).unwrap();
+/// // Send buffer[..len] over UART...
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ParameterRead {
     /// Destination device address.
+    ///
+    /// The CRSF address of the device being queried. Common targets:
+    /// - [PacketAddress::Transmitter] : ExpressLRS TX module
+    /// - [PacketAddress::Receiver] : ExpressLRS receiver
+    /// - [PacketAddress::FlightController] : Betaflight/ArduPilot
     pub dst_addr: u8,
     /// Origin device address.
+    ///
+    /// Your device's CRSF address. This identifies you as the requester.
+    /// For handset applications, use [PacketAddress::Handset].
     pub src_addr: u8,
-    /// The parameter number to read.
+    /// The parameter ID to request.
+    ///
+    /// Parameters are numbered starting from 0 (the root folder). To discover
+    /// all parameters, request them sequentially. The DeviceManager tracks
+    /// which parameters have been loaded and automatically requests the next.
     pub parameter_number: u8,
-    /// The chunk number to request (starts with 0).
+    /// Chunk number for large parameters.
+    ///
+    /// Most parameters fit in a single packet (chunk 0). For parameters with
+    /// large metadata (e.g., TextSelection with many options), the device
+    /// sends multiple [ParameterSettingsEntry] packets. Set this to request a
+    /// specific chunk if a previous packet was missed.
     pub chunk_number: u8,
 }
 

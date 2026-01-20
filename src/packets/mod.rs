@@ -48,7 +48,7 @@ pub use attitude::Attitude;
 pub use baro_altitude::BaroAltitude;
 pub use barometer::Barometer;
 pub use battery::Battery;
-pub use commands::DirectCommands;
+pub use commands::DirectCommand;
 pub use device_information::DeviceInformation;
 pub use device_ping::DevicePing;
 pub use elrs_status::ElrsStatus;
@@ -137,7 +137,7 @@ pub enum Packet {
     DevicePing(DevicePing),
     Game(Game),
     NotImlemented(PacketType, usize),
-    Commands(DirectCommands),
+    Command(DirectCommand),
     Logging(Logging),
     ParameterRead(ParameterRead),
     ParameterWrite(ParameterWrite),
@@ -197,7 +197,7 @@ impl Packet {
             MavlinkEnvelope::PACKET_TYPE => {
                 Ok(Self::MavlinkEnvelope(MavlinkEnvelope::from_bytes(data)?))
             }
-            DirectCommands::PACKET_TYPE => Ok(Self::Commands(DirectCommands::from_bytes(data)?)),
+            DirectCommand::PACKET_TYPE => Ok(Self::Command(DirectCommand::from_bytes(data)?)),
             Logging::PACKET_TYPE => Ok(Self::Logging(Logging::from_bytes(data)?)),
             ParameterRead::PACKET_TYPE => Ok(Self::ParameterRead(ParameterRead::from_bytes(data)?)),
             ParameterWrite::PACKET_TYPE => {

@@ -7,36 +7,121 @@ const MAX_STRING_LEN: usize = 128;
 const MAX_CHILDREN: usize = 32;
 const MAX_OPTIONS: usize = 128;
 
-/// Parameter data type values (lower 7 bits of type byte).
+/// CRSF parameter data types (lower 7 bits of type byte).
+///
+/// Each parameter has a type determining its value format and constraints.
+/// The type is stored in the data_type field with the hidden flag (bit 7)
+/// for advanced/developer parameters.
+///
+/// # Common Types
+///
+/// - **Float (8)**: Numeric values with min/max/step (e.g., TX power in mW)
+/// - **TextSelection (9)**: Enum-style choices (e.g., RF mode: "Dynamic", "Fixed")
+/// - **String (10)**: Free-form text (rare, e.g., device name)
+/// - **Folder (11)**: Organizational node with children (hierarchical structure)
+/// - **Info (12)**: Read-only display (e.g., firmware version, link statistics)
+/// - **Command (13)**: Action triggers (e.g., "Bind", "Save")
+/// - **Vtx (15)**: Video transmitter parameters (band/channel/power)
+///
+/// # Deprecated Types
+///
+/// Types 0-5 (Uint8, Int8, Uint16, Int16, Uint32, Int32) are deprecated
+/// in modern CRSF implementations. Use Float for numeric values.
+///
+/// # ExpressLRS Parameter Tree Structure
+///
+/// ExpressLRS devices typically organize parameters hierarchically:
+/// ```text
+/// ID 0: ROOT (Folder)
+///   ├─ ID 1: Connection (Folder)
+///   │   ├─ ID 10: Link Quality (Info)
+///   │   ├─ ID 11: RF Mode (TextSelection: Dynamic/Fixed/Reserved)
+///   │   └─ ID 12: Lock on First Connect (Float: 0/1)
+///   ├─ ID 2: VTX (Folder)
+///   │   ├─ ID 20: Band (TextSelection: A/B/E/R/F/L/T/A)
+///   │   ├─ ID 21: Channel (Float: 1-8)
+///   │   └─ ID 22: Power (TextSelection: 25/200/500/1000 mW...)
+///   └─ ID 3: Lua (Folder)
+///       └─ ID 30: Telemetry (TextSelection: Off/UART/Crossfire/ELRS)
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParameterDataType {
-    /// Unsigned 8-bit integer (deprecated).
+    /// Unsigned 8-bit integer (deprecated - use Float instead).
     Uint8 = 0,
-    /// Signed 8-bit integer (deprecated).
+    /// Signed 8-bit integer (deprecated - use Float instead).
     Int8 = 1,
-    /// Unsigned 16-bit integer (deprecated).
+    /// Unsigned 16-bit integer (deprecated - use Float instead).
     Uint16 = 2,
-    /// Signed 16-bit integer (deprecated).
+    /// Signed 16-bit integer (deprecated - use Float instead).
     Int16 = 3,
-    /// Unsigned 32-bit integer (deprecated).
+    /// Unsigned 32-bit integer (deprecated - use Float instead).
     Uint32 = 4,
-    /// Signed 32-bit integer (deprecated).
+    /// Signed 32-bit integer (deprecated - use Float instead).
     Int32 = 5,
-    /// Floating point value.
+    /// Floating point numeric value.
+    ///
+    /// The most common type for numeric parameters. Value is stored as
+    /// i32 internally but represents an f32. Includes min/max/default
+    /// values, decimal precision, step size, and units.
+    ///
+    /// **Example use cases:**
+    /// - TX Power: 0-10000 mW, step 100 mW
+    /// - PWM Frequency: 50-400 Hz, step 50 Hz
+    /// - Telemetry Rate: 0-250 Hz, step 1 Hz
     Float = 8,
-    /// Text selection from predefined options.
+    /// Enum-style text selection from predefined options.
+    ///
+    /// Options are semicolon-delimited UTF-8 strings (e.g., "Off;On;Auto").
+    /// The value field stores the 0-based index of selected option.
+    ///
+    /// **Example use cases:**
+    /// - RF Mode: "Dynamic;Fixed;Reserved"
+    /// - Switch Mode: "Momentary;Toggle;None"
+    /// - ELRS Mode: "868;915;433"
     TextSelection = 9,
-    /// String value.
+    /// Free-form string value.
+    ///
+    /// User-editable text with maximum length constraint. Rarely used.
+    ///
+    /// **Example use cases:**
+    /// - Device name
+    /// - Custom bind phrase (deprecated in favor of other methods)
     String = 10,
-    /// Folder container.
+    /// Organizational folder containing child parameters.
+    ///
+    /// Folders organize the parameter hierarchy. The value field contains
+    /// a list of child parameter IDs terminated by 0xFF. Folders are
+    /// not writable - they only provide structure.
+    ///
+    /// **Navigation:** Start at ID 0 (root), read children list, recurse.
     Folder = 11,
-    /// Read-only information.
+    /// Read-only informational string.
+    ///
+    /// Display-only information shown to users. Cannot be written.
+    ///
+    /// **Example use cases:**
+    /// - Firmware version: "v3.3.1"
+    /// - Device info: "ESP32-S3 @ 240MHz"
+    /// - Link quality: "RSSI: -45dBm, LQ: 98%"
     Info = 12,
-    /// Command/Action.
+    /// Command or action trigger.
+    ///
+    /// Writing any value to this parameter triggers the command. The status
+    /// field indicates if command is executing. Commands have a timeout.
+    ///
+    /// **Example use cases:**
+    /// - Bind: Initiate RX binding process
+    /// - VTX Save: Apply and save VTX settings
+    /// - Reset: Reset device to factory settings
     Command = 13,
-    /// VTX-specific parameter.
+    /// Video transmitter specific parameters.
+    ///
+    /// Raw binary data for VTX control. Format is VTX implementation
+    /// dependent. Common in Betaflight FCs for VTX configuration.
     Vtx = 15,
-    /// Out of range marker.
+    /// Out of range marker (internal use).
+    ///
+    /// Used to indicate invalid or out-of-bounds type values.
     OutOfRange = 127,
 }
 
@@ -66,44 +151,191 @@ impl TryFrom<u8> for ParameterDataType {
     }
 }
 
-/// Parameter payload data (varies by data type).
+/// Type-specific parameter data and value.
+///
+/// This enum holds the value and metadata for a parameter, varying by
+/// [ParameterDataType]. The DeviceManager stores these within [Parameter]
+/// structures for easy access.
+///
+/// # Access Pattern
+///
+/// After receiving a [ParameterSettingsEntry], match on the `data` field:
+///
+/// ```no_run
+/// # use uf_crsf::packets::parameter_settings_entry::ParameterData;
+/// if let Some(ParameterData::Float { value, min, max, unit, .. }) = &parameter.data {
+///     println!("TX Power: {} {} (range: {}-{})", value, unit, min, max);
+/// } else if let Some(ParameterData::TextSelection { options, value, .. }) = &parameter.data {
+///     let options_vec: Vec<&str> = options.split(';').collect();
+///     if let Some(&selected) = options_vec.get(*value as usize) {
+///         println!("RF Mode: {} (selected: {})", selected, value);
+///     }
+/// }
+/// ```
+///
+/// # Value Encoding for Writes
+///
+/// When constructing [ParameterWrite] packets, encode values as follows:
+///
+/// - **Float**: Write 4 bytes as little-endian f32
+/// - **TextSelection**: Write the option index (u8), not the string
+/// - **String**: Write UTF-8 bytes without null terminator
+/// - **Command**: Write any byte (e.g., [0]) to trigger
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParameterData {
-    /// Float parameter with value, min, max, default, precision, and step.
+    /// Numeric floating point value with constraints.
+    ///
+    /// Used for continuous numeric parameters like power, frequencies, rates.
+    ///
+    /// **Encoding for [ParameterWrite]:** 4 bytes, little-endian f32
+    /// ```rust,no_run
+    /// # let value: f32 = 2000.0;
+    /// let mut data = [0u8; 4];
+    /// data.copy_from_slice(&value.to_le_bytes());
+    /// ```
+    ///
+    /// **Example ExpressLRS parameters:**
+    /// - TX Power: 0-10000 mW, step 100 mW, unit "mW"
+    /// - Lock on First Connect: 0-1, step 1, unit "bool"
+    /// - Telemetry Rate: 0-250 Hz, step 1, unit "Hz"
     Float {
+        /// Current value as i32 (reinterpret f32 bits).
         value: i32,
+        /// Minimum allowed value.
         min: i32,
+        /// Maximum allowed value.
         max: i32,
+        /// Default/reset value.
         default: i32,
+        /// Number of decimal places for display (0-2).
+        ///
+        /// e.g., value 12500 with decimal_point 1 displays as "1250.0"
         decimal_point: u8,
+        /// Minimum increment between values.
         step_size: i32,
+        /// Unit label for display (e.g., "mW", "Hz", "").
         unit: String<MAX_STRING_LEN>,
     },
-    /// Text selection with options, value, min, max, and default.
+    /// Enum-style selection from predefined string options.
+    ///
+    /// Options are semicolon-delimited (e.g., "Off;On;Auto").
+    /// The value field is the 0-based index into this options string.
+    ///
+    /// **Encoding for [ParameterWrite]:** 1 byte (option index)
+    /// ```rust,no_run
+    /// # let option_index: u8 = 1;
+    /// let data = [option_index];  // Selects second option
+    /// ```
+    ///
+    /// **Example ExpressLRS parameters:**
+    /// - RF Mode: "Dynamic;Fixed;Reserved", default 0
+    /// - Switch Mode: "Momentary;Toggle;None", default 0
+    /// - ELRS Mode: "868;915;433", default 1 (915 MHz)
     TextSelection {
+        /// Semicolon-delimited options string.
+        ///
+        /// Parse with `options.split(';')` to get individual choices.
         options: String<MAX_OPTIONS>,
+        /// Index of currently selected option.
         value: u8,
+        /// Minimum valid index (typically 0).
         min: u8,
+        /// Maximum valid index (typically options_count - 1).
         max: u8,
+        /// Default selection index.
         default: u8,
+        /// Unit label (typically empty for enums).
         unit: String<MAX_STRING_LEN>,
     },
-    /// String parameter with value.
+    /// Free-form text string.
+    ///
+    /// Used for user-editable text with length constraints.
+    ///
+    /// **Encoding for [ParameterWrite]:** UTF-8 bytes (no null terminator)
+    /// ```rust,no_run
+    /// # let text = "MyRadio";
+    /// let data = text.as_bytes();  // Send as UTF-8 bytes
+    /// ```
+    ///
+    /// **Example ExpressLRS parameters:**
+    /// - Device Name: Max 16 chars, default "ELRS"
     String {
+        /// Current string value.
         value: String<MAX_STRING_LEN>,
+        /// Maximum character limit.
         max_length: u8,
     },
-    /// Folder with children list.
+    /// Organizational folder containing child parameters.
+    ///
+    /// Folders define the parameter hierarchy. The children list contains
+    /// parameter IDs that belong to this folder. Navigation is typically
+    /// recursive: start at root (ID 0), read children, traverse down.
+    ///
+    /// **Not writable** - folders only provide structure.
+    ///
+    /// **Navigation example:**
+    /// ```rust,no_run
+    /// # use heapless::Vec;
+    /// # let children: Vec<u8, 32> = Vec::new();
+    /// for &child_id in &children {
+    ///     // Load parameter via DeviceManager
+    ///     if let Some(child) = device.get_parameter(child_id) {
+    ///         if child.is_folder() {
+    ///             // Recurse into folder
+    ///         } else {
+    ///             // Display parameter
+    ///         }
+    ///     }
+    /// }
+    /// ```
     Folder { children: Vec<u8, MAX_CHILDREN> },
-    /// Read-only information.
+    /// Read-only informational display.
+    ///
+    /// Contains text to display to users, typically device status or version info.
+    ///
+    /// **Not writable** - info is for display only.
+    ///
+    /// **Example ExpressLRS parameters:**
+    /// - Link Quality: "RSSI: -45dBm, SNR: 20, LQ: 98%"
+    /// - Firmware: "v3.3.1"
+    /// - Device Info: "ESP32-S3 @ 240MHz"
     Info { info: String<MAX_STRING_LEN> },
-    /// Command with status, timeout, and info.
+    /// Command or action trigger.
+    ///
+    /// Commands are triggered by writing any value to this parameter.
+    /// The status field indicates if command is currently executing.
+    /// Commands have a timeout to prevent indefinite blocking.
+    ///
+    /// **Encoding for [ParameterWrite]:** Any byte (e.g., `[0]`)
+    /// ```rust,no_run
+    /// let data = [0];  // Triggers command
+    /// ```
+    ///
+    /// **Command status values:**
+    /// - 0: Not started / completed
+    /// - 1: In progress
+    /// - 2: Executing
+    ///
+    /// **Example ExpressLRS parameters:**
+    /// - Bind: Trains RX binding (timeout ~10s)
+    /// - VTX Save: Applies VTX settings (timeout ~2s)
+    /// - Reset: Factory reset (timeout ~5s)
     Command {
+        /// Current execution status.
         status: u8,
+        /// Timeout in seconds (after this, status resets).
         timeout: u8,
+        /// Description of command action.
         info: String<MAX_STRING_LEN>,
     },
-    /// VTX-specific parameter with raw data.
+    /// Video transmitter raw binary data.
+    ///
+    /// VTX parameters are implementation-specific binary data, typically
+    /// used by Betaflight FCs for VTX configuration.
+    ///
+    /// **Encoding for [ParameterWrite]:** Raw bytes as defined by VTX protocol
+    ///
+    /// **Format varies by VTX implementation** - refer to device documentation.
     Vtx { data: Vec<u8, 64> },
 }
 
@@ -141,7 +373,6 @@ impl ParameterSettingsEntry {
         parent: u8,
         data_type: u8,
         name: &str,
-        data: Option<ParameterData>,
     ) -> Result<Self, CrsfParsingError> {
         if name.len() > MAX_STRING_LEN {
             return Err(CrsfParsingError::InvalidPayloadLength);
@@ -157,8 +388,15 @@ impl ParameterSettingsEntry {
             parent,
             data_type,
             name: s,
-            data,
+            data: None,
         })
+    }
+
+    pub fn add_data(self, data: ParameterData) -> Self {
+        Self {
+            data: Some(data),
+            ..self
+        }
     }
 
     /// Returns the data type without the hidden bit.

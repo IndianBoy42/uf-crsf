@@ -7,16 +7,125 @@ const MAX_DEVICE_NAME_LEN: usize = 43;
 const EXTENDED_HEADER_SIZE: usize = 2 * size_of::<u8>();
 const FIXED_FIELDS_SIZE: usize = 3 * size_of::<u32>() + 2 * size_of::<u8>();
 
-/// Represents a Device Information packet (0x29).
+/// Response packet identifying a CRSF device and its parameters.
+///
+/// This packet (type 0x29) is sent in response to a [DevicePing] discovery request.
+/// It contains device identification, hardware/firmware versions, and metadata about
+/// the exposed parameters.
+///
+/// # Response Flow
+///
+/// After receiving a [DevicePing], each device sends [DeviceInformation] back to
+/// the requester:
+///
+/// ```text
+/// Handset → Broadcast: DevicePing
+/// TX Module → Handset: DeviceInformation (serial: 0x454C5253, params: 25, version: 1)
+/// RX → Handset: DeviceInformation (serial: 0x..., params: 8, version: 1)
+/// ```
+///
+/// # Parameter Enumeration
+///
+/// The `parameters_total` field indicates how many parameter IDs exist on this device.
+/// After receiving this packet, begin enumeration by requesting parameter 0 via
+/// [ParameterRead]. Parameter 0 is typically a root folder whose value field
+/// contains the top-level child parameter IDs.
+///
+/// # Parameter Versioning
+///
+/// The `parameter_version_number` tracks the parameter schema version. If this changes
+/// from a previous connection, the parameter structure (IDs, types, defaults) may have
+/// been updated. Applications should:
+/// - Clear cached parameters when version changes
+/// - Re-enumerate all parameters
+/// - Update UI to reflect new structure
+///
+/// # ExpressLRS Devices
+///
+/// | Device Type | Serial Number | Typical Name | Param Count |
+/// |-------------|---------------|-------------|-------------|
+/// | TX Module | 0x454C5253 ("ELRS") | "ELRS TX" | 20-50 |
+/// | Receiver | 0x454C5253 ("ELRS") | "ELRS RX" | 5-15 |
+/// | FC (Betaflight) | Varies | "Betaflight" | 10+ |
+///
+/// # Example Usage
+///
+/// ```no_run
+/// # use uf_crsf::packets::device_information::DeviceInformation;
+/// # use uf_crsf::parser::CrsfParser;
+/// let mut parser = CrsfParser::new();
+///
+/// // Process incoming packets
+/// let bytes = uart_read();
+/// for packet_result in parser.iter_packets(&bytes) {
+///     if let Ok(packet) = packet_result {
+///         if let Packet::DeviceInformation(info) = packet {
+///             println!("Found device: {}", info.device_name());
+///             println!("  Serial: 0x{:08X}", info.serial_number);
+///             println!("  Parameters: {}", info.parameters_total);
+///             println!("  Firmware: 0x{:08X}", info.firmware_id);
+///
+///             // Start parameter enumeration
+///             let request = ParameterRead::new(
+///                 info.src_addr,  // Respond to this device
+///                 my_address,
+///                 0,              // Start with parameter 0 (root)
+///                 0,              // First chunk
+///             )?;
+///             uart_write(&request);
+///         }
+///     }
+/// }
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeviceInformation {
+    /// Destination address for this response packet.
+    ///
+    /// This is the address of the device that sent the [DevicePing].
+    /// Responses are directed back to the requester, not broadcast.
     pub dst_addr: u8,
+    /// Source address (the responding device's address).
+    ///
+    /// Use this address when sending subsequent [ParameterRead] or
+    /// [ParameterWrite] packets to this device.
     pub src_addr: u8,
+    /// Human-readable device name (up to 42 characters).
+    ///
+    /// Display this to users to identify which device they're configuring.
+    /// Common values: "ELRS TX", "Betaflight", "ArduPilot", "TBS Tracer".
     device_name: String<MAX_DEVICE_NAME_LEN>,
+    /// Unique serial number identifying this device.
+    ///
+    /// ExpressLRS devices typically use 0x454C5253 ("ELRS") for their serial.
+    /// Other devices may use device-specific serials or board identifiers.
+    /// This field helps correlate devices across sessions.
     pub serial_number: u32,
+    /// Hardware identifier (vendor-specific encoding).
+    ///
+    /// Encodes board type or hardware revision. The exact format is
+    /// vendor-dependent:
+    /// - **ExpressLRS**: Often encodes radio type (ESP8266/ESP32/SX12xx)
+    /// - **Betaflight**: May encode MCU type
+    /// - **TBS**: Board model identifier
+    ///
+    /// Consult vendor documentation for interpretation.
     pub hardware_id: u32,
+    /// Firmware identifier encoding version and variant.
+    ///
+    /// Format varies by vendor. For ExpressLRS, high bytes often indicate
+    /// major.minor version. This field can help determine feature support.
     pub firmware_id: u32,
+    /// Total number of parameters exposed by this device.
+    ///
+    /// Parameters are numbered from 0 to `parameters_total - 1`. Use this
+    /// value to determine when parameter enumeration is complete
+    /// (when you've received all parameters up to this count).
     pub parameters_total: u8,
+    /// Parameter schema version number.
+    ///
+    /// Tracks the structure of the parameter tree. If this changes,
+    /// the IDs, types, or organization of parameters may have changed.
+    /// Applications should clear caches and re-enumerate when this changes.
     pub parameter_version_number: u8,
 }
 

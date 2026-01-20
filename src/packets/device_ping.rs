@@ -1,11 +1,72 @@
 use crate::packets::{CrsfPacket, PacketType};
 use crate::CrsfParsingError;
 
-/// Represents a Device Ping packet (0x28).
+/// Broadcast discovery request for CRSF devices on the bus.
+///
+/// This packet (type 0x28) is used to discover CRSF-capable devices. When a device
+/// receives a ping addressed to it, it responds with [DeviceInformation] containing
+/// its identification and parameter metadata.
+///
+/// # Broadcast vs Directed Pings
+///
+/// The `dst_addr` field can be either:
+/// - **Broadcast (0xFF)**: All devices on the bus respond (most common)
+/// - **Specific address**: Only the targeted device responds
+///
+/// Handset applications typically use broadcast to discover all devices.
+///
+/// # Discovery Flow
+///
+/// 1. Send [DevicePing] with dst=0xFF, src=[PacketAddress::Handset]
+/// 2. All devices respond with [DeviceInformation]
+/// 3. Each response identifies the device (name, serial, param count)
+/// 4. Begin parameter enumeration via [ParameterRead]
+///
+/// # Rate Limiting
+///
+/// Avoid flooding the bus with pings. In embedded systems, wait at least
+/// 500ms-1000ms between broadcasts. The [DeviceManager] can handle this
+/// automatically via [crate::device::DeviceManagerConfig::device_ping_interval_ms].
+///
+/// # ExpressLRS Behavior
+///
+/// ExpressLRS TX modules respond to pings with serial number 0x454C5253 ("ELRS").
+/// Receivers may not respond to broadcast pings in all configurations.
+///
+/// # Example
+///
+/// ```no_run
+/// # use uf_crsf::packets::device_ping::DevicePing;
+/// use uf_crsf::packets::PacketAddress;
+///
+/// // Broadcast discovery ping to find all devices
+/// let ping = DevicePing::new(
+///     PacketAddress::Broadcast as u8,  // dst_addr: all devices
+///     PacketAddress::Handset as u8,     // src_addr: this controller
+/// ).unwrap();
+///
+/// let mut buffer = [0u8; 64];
+/// let len = ping.to_bytes(&mut buffer).unwrap();
+/// // Send buffer[..len] over UART...
+///
+/// // Expected responses: DeviceInformation from each device
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DevicePing {
+    /// Destination address for the ping.
+    ///
+    /// - [PacketAddress::Broadcast] (0xFF): All devices respond (recommended)
+    /// - Specific address: Only that device responds
+    ///
+    /// For initial device discovery, always use broadcast to find all devices.
     pub dst_addr: u8,
+    /// Origin/source address of the ping.
+    ///
+    /// Your device's CRSF address. Devices responding to this ping will
+    /// send their [DeviceInformation] back to this address.
+    ///
+    /// For handset applications, use [PacketAddress::Handset].
     pub src_addr: u8,
 }
 

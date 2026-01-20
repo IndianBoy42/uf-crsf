@@ -61,6 +61,11 @@ name = "simple"
 path = "examples/local_simple.rs"
 
 [features]
-"defmt" = ["dep:defmt", "embedded-io-async?/defmt", "embedded-io?/defmt"]
+"defmt" = [
+    "dep:defmt",
+    "embedded-io-async?/defmt",
+    "embedded-io?/defmt",
+    "heapless/defmt",
+]
 "embedded_io_async" = ["dep:embedded-io-async", "dep:embedded-io"]
 "embedded_io" = ["dep:embedded-io"]

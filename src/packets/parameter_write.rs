@@ -3,22 +3,95 @@ use crate::CrsfParsingError;
 use core::mem::size_of;
 use heapless::Vec;
 
-/// Maximum size of parameter write data.
+/// Maximum size of parameter write data in bytes.
+///
+/// The CRSF protocol limits parameter values to 32 bytes. This accommodates:
+/// - Float: 4 bytes (little-endian f32)
+/// - TextSelection: 1 byte (option index)
+/// - String: Variable length (up to 31 bytes + null terminator)
+/// - Command: 1 byte (triggers action)
 const MAX_DATA_SIZE: usize = 32;
 
-/// Represents a Parameter Write packet (0x2D).
+/// Writes a new value to a device parameter.
 ///
-/// Used to write a new value to a parameter.
-/// The data payload size depends on parameter type.
+/// This packet (type 0x2D) changes a parameter's value on a CRSF device.
+/// Common use cases include setting TX power, changing VTX channels, or
+/// adjusting receiver PWM frequencies.
+///
+/// # Data Encoding by Parameter Type
+///
+/// The `data` bytes must be formatted according to the parameter's type:
+///
+/// | Type | Data Format | Size | Example |
+/// |------|------------|------|---------|
+/// | Float | Little-endian f32 | 4 bytes | 2000.0 mW → `[0xD0, 0x07, 0x00, 0x00]` |
+/// | TextSelection | Option index (u8) | 1 byte | Select option 2 → `[2]` |
+/// | String | UTF-8 string | Variable | "MyRadio" → `"MyRadio".as_bytes()` |
+/// | Command | Any value (triggers) | Any | `[0]` |
+/// | Folder/Info | Not writable | - | N/A |
+///
+/// # Write Confirmation
+///
+/// The CRSF spec doesn't define an explicit write confirmation packet.
+/// However, the device typically updates its state and subsequent
+/// [ParameterSettingsEntry] responses will reflect the new value.
+/// Some implementations (e.g., ExpressLRS) send a new [ParameterSettingsEntry]
+/// for the written parameter as implicit confirmation.
+///
+/// # CRSF Addressing
+///
+/// - `dst_addr`: Target device (e.g., [PacketAddress::Transmitter])
+/// - `src_addr`: Your device's address (e.g., [PacketAddress::Handset])
+///
+/// # Example
+///
+/// ```no_run
+/// # use uf_crsf::packets::parameter_write::ParameterWrite;
+/// use uf_crsf::packets::PacketAddress;
+///
+/// // Write TX Power parameter (ID 5, Float type) to 2000 mW
+/// let power_value: f32 = 2000.0;
+/// let mut data_bytes = [0u8; 4];
+/// data_bytes.copy_from_slice(&power_value.to_le_bytes());
+///
+/// let write = ParameterWrite::new(
+///     PacketAddress::Transmitter as u8,  // dst_addr
+///     PacketAddress::Handset as u8,       // src_addr
+///     5,   // parameter_number
+///     &data_bytes,
+/// ).unwrap();
+///
+/// let mut buffer = [0u8; 64];
+/// let len = write.to_bytes(&mut buffer).unwrap();
+/// // Send buffer[..len] over UART...
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParameterWrite {
     /// Destination device address.
+    ///
+    /// The CRSF address of the device receiving the write. Common targets:
+    /// - [PacketAddress::Transmitter]: ExpressLRS TX module (e.g., for power/mode settings)
+    /// - [PacketAddress::Receiver]: ExpressLRS receiver (e.g., for output mode)
+    /// - [PacketAddress::FlightController]: FC for VTX or flight mode settings
     pub dst_addr: u8,
     /// Origin device address.
+    ///
+    /// Your device's CRSF address. For handset applications, use
+    /// [PacketAddress::Handset]. This identifies you as the source of
+    /// the write request.
     pub src_addr: u8,
-    /// The parameter number to write.
+    /// The parameter ID to write.
+    ///
+    /// Must correspond to a valid parameter ID previously discovered via
+    /// [ParameterSettingsEntry] enumeration. Writing to an invalid
+    /// parameter ID typically results in no action or an error response.
     pub parameter_number: u8,
-    /// The new value data (size depends on parameter type).
+    /// The new parameter value bytes.
+    ///
+    /// Format depends on parameter type - see [ParameterWrite] documentation.
+    /// Maximum size is 32 bytes. The DeviceManager doesn't encode values
+    /// for you - you must construct the byte array based on the parameter's
+    /// type as discovered via [ParameterSettingsEntry].
     pub data: Vec<u8, MAX_DATA_SIZE>,
 }
 
