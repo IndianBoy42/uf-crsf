@@ -3,6 +3,7 @@
 #![doc = include_str!("../README.md")]
 
 pub mod constants;
+pub mod device;
 pub mod error;
 pub mod packets;
 pub mod parser;

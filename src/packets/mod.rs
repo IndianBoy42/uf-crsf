@@ -12,6 +12,7 @@ mod battery;
 mod commands;
 mod device_information;
 mod device_ping;
+mod elrs_status;
 mod esp_now;
 mod flight_mode;
 mod game;
@@ -27,6 +28,10 @@ mod magnetometer;
 mod mavlink_envelope;
 mod mavlink_fc;
 mod mavlink_sensor;
+mod msp;
+mod parameter_read;
+mod parameter_settings_entry;
+mod parameter_write;
 mod rc_channels_packed;
 mod remote;
 mod rpm;
@@ -44,6 +49,7 @@ pub use battery::Battery;
 pub use commands::DirectCommands;
 pub use device_information::DeviceInformation;
 pub use device_ping::DevicePing;
+pub use elrs_status::ElrsStatus;
 pub use esp_now::EspNow;
 pub use flight_mode::FlightMode;
 pub use game::Game;
@@ -59,6 +65,10 @@ pub use magnetometer::Magnetometer;
 pub use mavlink_envelope::MavlinkEnvelope;
 pub use mavlink_fc::MavLinkFc;
 pub use mavlink_sensor::MavLinkSensor;
+pub use msp::MspPacket;
+pub use parameter_read::ParameterRead;
+pub use parameter_settings_entry::{ParameterData, ParameterDataType, ParameterSettingsEntry};
+pub use parameter_write::ParameterWrite;
 pub use rc_channels_packed::RcChannelsPacked;
 pub use remote::Remote;
 pub use rpm::Rpm;
@@ -91,6 +101,7 @@ pub trait CrsfPacket: Sized {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Packet {
@@ -126,6 +137,13 @@ pub enum Packet {
     NotImlemented(PacketType, usize),
     Commands(DirectCommands),
     Logging(Logging),
+    ParameterRead(ParameterRead),
+    ParameterWrite(ParameterWrite),
+    ParameterSettingsEntry(ParameterSettingsEntry),
+    ElrsStatus(ElrsStatus),
+    MspRequest(MspPacket),
+    MspResponse(MspPacket),
+    ArduPilotPassthrough(ArduPilotPassthrough),
 }
 
 impl Packet {
@@ -179,6 +197,19 @@ impl Packet {
             }
             DirectCommands::PACKET_TYPE => Ok(Self::Commands(DirectCommands::from_bytes(data)?)),
             Logging::PACKET_TYPE => Ok(Self::Logging(Logging::from_bytes(data)?)),
+            ParameterRead::PACKET_TYPE => Ok(Self::ParameterRead(ParameterRead::from_bytes(data)?)),
+            ParameterWrite::PACKET_TYPE => {
+                Ok(Self::ParameterWrite(ParameterWrite::from_bytes(data)?))
+            }
+            ParameterSettingsEntry::PACKET_TYPE => Ok(Self::ParameterSettingsEntry(
+                ParameterSettingsEntry::from_bytes(data)?,
+            )),
+            ElrsStatus::PACKET_TYPE => Ok(Self::ElrsStatus(ElrsStatus::from_bytes(data)?)),
+            PacketType::MspRequest => Ok(Self::MspRequest(MspPacket::from_bytes(data)?)),
+            PacketType::MspResponse => Ok(Self::MspResponse(MspPacket::from_bytes(data)?)),
+            ArduPilotPassthrough::PACKET_TYPE => Ok(Self::ArduPilotPassthrough(
+                ArduPilotPassthrough::from_bytes(data)?,
+            )),
             _ => Ok(Packet::NotImlemented(
                 packet_type,
                 raw_packet.payload().len(),
@@ -244,7 +275,7 @@ impl PacketType {
 
 /// Represents all CRSF packet addresses
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, TryFromPrimitive)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum PacketAddress {
@@ -272,6 +303,7 @@ pub enum PacketAddress {
     Handset = 0xEA,
     Receiver = 0xEC,
     Transmitter = 0xEE,
+    ElrsLua = 0xEF,
 }
 
 pub fn write_packet_to_buffer<T: CrsfPacket>(
