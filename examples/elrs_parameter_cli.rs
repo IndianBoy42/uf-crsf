@@ -1,16 +1,32 @@
 //! ELRS Parameter CLI Example
 //!
-//! This is a command-line utility demonstrating how to use DeviceManager and CrsfParser
-//! to interact with a simulated ELRS device.
+//! This is a command-line utility demonstrating how to use `DeviceManager` and `CrsfParser`
+//! to interact with a simulated ExpressLRS device.
+//!
+//! ### Real-world Integration vs. CLI Script
+//! This CLI tool uses a simulated "Mock" device to demonstrate the API without hardware.
+//! In a production application:
+//! - **Async IO:** You would likely use `tokio-serial` or similar to handle UART IO
+//!   asynchronously.
+//! - **Background Processing:** The `DeviceManager` logic (reading UART, parsing
+//!   packets, handling timeouts) would run in a background task, while the UI/CLI
+//!   runs in the foreground.
+//! - **Persistence:** Real applications often cache parameter values locally to
+//!   speed up the initial UI load.
+//!
+//! ### Hardware/IO Considerations
+//! - **Microcontrollers:** On platforms like ESP32 or STM32, you would interface the
+//!   CRSF UART with the `CrsfParser` directly in your main event loop or a high-priority
+//!   task.
+//! - **Half-Duplex Bus:** CRSF is half-duplex. If you are on an MCU, ensure you
+//!   manage the UART direction if your hardware requires it (though most ELRS
+//!   setups use standard full-duplex UARTs wired for half-duplex).
 //!
 //! Features:
 //! - Discover ELRS devices on the bus
 //! - List all parameters with their current values
 //! - Get detailed information about a specific parameter
 //! - Set parameter values
-//!
-//! Note: This is a simulation using mock data. In a real application,
-//! you would interface with actual CRSF hardware via UART or similar.
 
 use heapless::Vec;
 use std::io::{self, Write};
@@ -22,7 +38,8 @@ use uf_crsf::packets::{
 };
 use uf_crsf::parser::CrsfParser;
 
-/// Mock ELRS device simulator
+/// Mock ELRS device simulator.
+/// This simulates how a real ELRS module responds to CRSF parameter requests.
 struct MockElrsDevice {
     device_info: DeviceInformation,
     parameters: Vec<ParameterSettingsEntry, 16>,
@@ -47,6 +64,8 @@ impl MockElrsDevice {
         let mut param_values = heapless::Vec::new();
 
         // Parameter 0: ROOT folder
+        // Folders in CRSF define the hierarchy. They don't have values themselves,
+        // but they list the IDs of their children.
         let mut root_children = Vec::new();
         root_children.push(1).unwrap();
         root_children.push(2).unwrap();
@@ -56,7 +75,11 @@ impl MockElrsDevice {
         parameters
             .push(
                 ParameterSettingsEntry::new(
-                    0,
+                    PacketAddress::Handset as u8,
+                    PacketAddress::Transmitter as u8,
+                    0, // ID
+                    0, // Chunks
+                    0, // Parent
                     ParameterDataType::Folder as u8,
                     "ROOT",
                     Some(ParameterData::Folder {
@@ -69,6 +92,7 @@ impl MockElrsDevice {
         param_values.push(None).unwrap();
 
         // Parameter 1: Packet Rate
+        // TextSelection represents a choice from a list. The options are semi-colon separated strings.
         let options = heapless::String::<128>::try_from(
             "50Hz(-117dBm);150Hz(-112dBm);250Hz(-108dBm);500Hz(-105dBm)",
         )
@@ -77,6 +101,10 @@ impl MockElrsDevice {
         parameters
             .push(
                 ParameterSettingsEntry::new(
+                    PacketAddress::Handset as u8,
+                    PacketAddress::Transmitter as u8,
+                    1,
+                    0,
                     0,
                     ParameterDataType::TextSelection as u8,
                     "Packet Rate",
@@ -97,10 +125,16 @@ impl MockElrsDevice {
         param_values.push(Some(value)).unwrap();
 
         // Parameter 2: TX Power
+        // CRSF Floats use a 32-bit integer value and a 'decimal_point' scaler.
+        // E.g., value=123, decimal_point=2 -> 1.23
         let unit = heapless::String::<128>::try_from("mW").unwrap();
         parameters
             .push(
                 ParameterSettingsEntry::new(
+                    PacketAddress::Handset as u8,
+                    PacketAddress::Transmitter as u8,
+                    2,
+                    0,
                     0,
                     ParameterDataType::Float as u8,
                     "TX Power",
@@ -129,6 +163,10 @@ impl MockElrsDevice {
         parameters
             .push(
                 ParameterSettingsEntry::new(
+                    PacketAddress::Handset as u8,
+                    PacketAddress::Transmitter as u8,
+                    3,
+                    0,
                     0,
                     ParameterDataType::TextSelection as u8,
                     "Switch Mode",
@@ -149,10 +187,16 @@ impl MockElrsDevice {
         param_values.push(Some(value)).unwrap();
 
         // Parameter 4: Binding
+        // Commands are parameters that don't have a persistent value, but
+        // can be "executed" by writing to them.
         let info = heapless::String::<128>::try_from("Press to enter bind mode").unwrap();
         parameters
             .push(
                 ParameterSettingsEntry::new(
+                    PacketAddress::Handset as u8,
+                    PacketAddress::Transmitter as u8,
+                    4,
+                    0,
                     0,
                     ParameterDataType::Command as u8,
                     "Bind",
@@ -174,6 +218,10 @@ impl MockElrsDevice {
         parameters
             .push(
                 ParameterSettingsEntry::new(
+                    PacketAddress::Handset as u8,
+                    PacketAddress::Transmitter as u8,
+                    5,
+                    0,
                     0,
                     ParameterDataType::TextSelection as u8,
                     "Telemetry Rate",
@@ -202,11 +250,9 @@ impl MockElrsDevice {
 
     fn handle_read(&mut self, param_id: u8) -> Option<Packet> {
         if (param_id as usize) < self.parameters.len() {
-            Some(Packet::ParameterSettingsEntry {
-                parameter_id: param_id,
-                chunks_remaining: 0,
-                entry: self.parameters[param_id as usize].clone(),
-            })
+            Some(Packet::ParameterSettingsEntry(
+                self.parameters[param_id as usize].clone(),
+            ))
         } else {
             None
         }
@@ -558,7 +604,7 @@ fn main() {
             "discover" => {
                 println!("\nDiscovering devices...");
                 // Send device ping
-                if let Some(ping_packet) = manager.send_device_ping(PacketAddress::Handset) {
+                if let Some(ping_packet) = manager.send_device_ping() {
                     println!("Sent ping packet ({} bytes)", ping_packet.len());
                 }
 
