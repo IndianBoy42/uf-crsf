@@ -1,3 +1,20 @@
+//! Async CRSF Reader Example
+//!
+//! This example demonstrates how to use the `AsyncCrsfReader` to read CRSF packets
+//! asynchronously from a serial port using `tokio` and `embedded-io-async`.
+//!
+//! ### Real-world Integration vs. CLI Script
+//! - **Tokio Runtime:** In a real application, you'd use this in a project already
+//!   using `tokio` for other async tasks (like networking or IPC).
+//! - **Cancellation:** Async readers support cancellation tokens, allowing you to
+//!   gracefully stop the serial processing when the application shuts down.
+//!
+//! ### Hardware/IO Considerations
+//! - **Adapters:** We use `embedded-io-adapters` to bridge the standard `tokio-serial`
+//!   port to the `embedded-io-async` traits required by `AsyncCrsfReader`.
+//! - **Microcontrollers:** This same `AsyncCrsfReader` can be used on MCUs with
+//!   Embassy or other async executors, providing a unified API across platforms.
+
 use embedded_io_adapters::tokio_1::FromTokio;
 use std::env;
 use std::process::exit;

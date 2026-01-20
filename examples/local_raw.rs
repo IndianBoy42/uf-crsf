@@ -1,3 +1,16 @@
+//! Raw CRSF Packet Parser Example
+//!
+//! This example demonstrates how to use `push_byte_raw` to access the underlying
+//! `RawCrsfPacket` before it is fully parsed into a high-level `Packet` enum.
+//! This is useful if you need to access raw bytes or handle custom/unknown packet
+//! types manually.
+//!
+//! ### Real-world Integration vs. CLI Script
+//! - **Low-level Access:** Use this if you are implementing a protocol analyzer
+//!   or a bridge that needs to pass through data without full deserialization.
+//! - **Performance:** Accessing raw packets avoids some of the overhead of
+//!   constructing high-level Rust enums if you only need a few fields.
+
 use std::io::{ErrorKind, Read};
 use std::process::exit;
 use std::time::Duration;

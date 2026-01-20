@@ -1,3 +1,21 @@
+//! Blocking CRSF Reader Example
+//!
+//! This example demonstrates how to use the `BlockingCrsfReader` to read CRSF packets
+//! using a synchronous, blocking API. This is often simpler for small utilities
+//! or single-threaded embedded applications.
+//!
+//! ### Real-world Integration vs. CLI Script
+//! - **Simplicity:** Blocking IO is easier to debug and reason about for simple
+//!   tools, but it can hang your thread if the serial port stops sending data.
+//! - **Timeouts:** Ensure your underlying serial port has a reasonable timeout
+//!   configured to prevent indefinite hangs.
+//!
+//! ### Hardware/IO Considerations
+//! - **Standard IO:** Bridges the standard `serialport` crate to `embedded-io`
+//!   traits.
+//! - **Microcontrollers:** Useful on MCUs when not using an async executor,
+//!   working directly with blocking HAL drivers.
+
 use embedded_io::ErrorKind;
 use embedded_io_adapters::std::FromStd;
 use std::env;

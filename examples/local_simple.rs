@@ -1,3 +1,13 @@
+//! Simple CRSF Buffer Parsing Example
+//!
+//! This is the most basic example, showing how to parse a fixed buffer of CRSF
+//! data. It's ideal for understanding the core `CrsfParser` API without any
+//! actual hardware IO.
+//!
+//! ### Real-world Integration vs. CLI Script
+//! - **In-memory Parsing:** Useful for unit tests or for processing CRSF data
+//!   that has already been captured and stored (e.g., in a log file).
+
 use uf_crsf::CrsfParser;
 
 fn main() {
