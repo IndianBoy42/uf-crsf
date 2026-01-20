@@ -5,6 +5,7 @@ use crc;
 
 mod accel_gyro;
 mod airspeed;
+mod ardupilot;
 mod attitude;
 mod baro_altitude;
 mod barometer;
@@ -42,6 +43,7 @@ mod vtx_telemetry;
 
 pub use accel_gyro::AccelGyro;
 pub use airspeed::AirSpeed;
+pub use ardupilot::{ArduPilotPassthrough, PassthroughTelemetryPacket};
 pub use attitude::Attitude;
 pub use baro_altitude::BaroAltitude;
 pub use barometer::Barometer;
@@ -269,7 +271,18 @@ pub enum PacketType {
 
 impl PacketType {
     pub fn is_extended(self) -> bool {
-        self as u8 >= 0x28
+        match self {
+            PacketType::DevicePing
+            | PacketType::DeviceInfo
+            | PacketType::ParameterSettingsEntry
+            | PacketType::ParameterRead
+            | PacketType::ParameterWrite
+            | PacketType::Command
+            | PacketType::RadioId
+            | PacketType::MspRequest
+            | PacketType::MspResponse => true,
+            _ => false,
+        }
     }
 }
 
