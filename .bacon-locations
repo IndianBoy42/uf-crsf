@@ -1,0 +1,924 @@
+error|:|src/device.rs|:|1137|:|1137|:|17|:|19|:|this enum variant takes 1 argument but 0 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this enum variant takes 1 argument but 0 arguments were supplied[0m
+    [1m[94m--> [0msrc/device.rs:1137:13
+     [1m[94m|[0m
+[1m[94m1137[0m [1m[94m|[0m             Some(),
+     [1m[94m|[0m             [1m[91m^^^^[0m[1m[94m--[0m [1m[94margument #1 is missing[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: tuple variant defined here
+    [1m[94m--> [0m/home/anshuman/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs:608:5
+     [1m[94m|[0m
+[1m[94m 608[0m [1m[94m|[0m     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
+     [1m[94m|[0m     [1m[92m^^^^[0m
+[1m[96mhelp[0m: provide the argument
+     [1m[94m|[0m
+[1m[94m1137[0m [1m[94m| [0m            Some([92m/* value */[0m),
+     [1m[94m|[0m                  [92m+++++++++++[0m
+
+|:|none
+error|:|src/device.rs|:|1137|:|1137|:|13|:|17|:|this enum variant takes 1 argument but 0 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this enum variant takes 1 argument but 0 arguments were supplied[0m
+    [1m[94m--> [0msrc/device.rs:1137:13
+     [1m[94m|[0m
+[1m[94m1137[0m [1m[94m|[0m             Some(),
+     [1m[94m|[0m             [1m[91m^^^^[0m[1m[94m--[0m [1m[94margument #1 is missing[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: tuple variant defined here
+    [1m[94m--> [0m/home/anshuman/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs:608:5
+     [1m[94m|[0m
+[1m[94m 608[0m [1m[94m|[0m     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
+     [1m[94m|[0m     [1m[92m^^^^[0m
+[1m[96mhelp[0m: provide the argument
+     [1m[94m|[0m
+[1m[94m1137[0m [1m[94m| [0m            Some([92m/* value */[0m),
+     [1m[94m|[0m                  [92m+++++++++++[0m
+
+|:|none
+note|:|/home/anshuman/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs|:|608|:|608|:|5|:|9|:|tuple variant defined here|:|none|:|none
+help|:|src/device.rs|:|1137|:|1137|:|17|:|19|:|provide the argument|:|none|:|(/* value */)
+error|:|src/device.rs|:|1137|:|1137|:|13|:|19|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/device.rs:1129:21
+     [1m[94m|[0m
+[1m[94m1129[0m [1m[94m|[0m         let entry = ParameterSettingsEntry::new(
+     [1m[94m|[0m                     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m...[0m
+[1m[94m1137[0m [1m[94m|[0m             Some(),
+     [1m[94m|[0m             [1m[94m------[0m [1m[94munexpected argument #8 of type `core::option::Option<_>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1136[0m [91m- [0m            "TX Power"[91m,[0m
+[1m[94m1137[0m [91m-             Some()[0m,
+[1m[94m1136[0m [92m+ [0m            "TX Power",
+     [1m[94m|[0m
+
+|:|none
+error|:|src/device.rs|:|1129|:|1129|:|21|:|48|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/device.rs:1129:21
+     [1m[94m|[0m
+[1m[94m1129[0m [1m[94m|[0m         let entry = ParameterSettingsEntry::new(
+     [1m[94m|[0m                     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m...[0m
+[1m[94m1137[0m [1m[94m|[0m             Some(),
+     [1m[94m|[0m             [1m[94m------[0m [1m[94munexpected argument #8 of type `core::option::Option<_>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1136[0m [91m- [0m            "TX Power"[91m,[0m
+[1m[94m1137[0m [91m-             Some()[0m,
+[1m[94m1136[0m [92m+ [0m            "TX Power",
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/device.rs|:|1136|:|1137|:|23|:|19|:|remove the extra argument|:|none|:|
+error|:|src/device.rs|:|1152|:|1152|:|28|:|31|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0283][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m---[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: cannot satisfy `_: heapless::LenType`
+[1m[96mhelp[0m: the following types implement trait `heapless::LenType`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/len_type.rs:71:9
+     [1m[94m|[0m
+[1m[94m  71[0m [1m[94m|[0m           impl LenType for $LenT {}
+     [1m[94m|[0m           [1m[96m^^^^^^^^^^^^^^^^^^^^^^[0m
+     [1m[94m|[0m           [1m[96m|[0m
+     [1m[94m|[0m           [1m[96m`u16`[0m
+     [1m[94m|[0m           [1m[96m`u32`[0m
+     [1m[94m|[0m           [1m[96m`u8`[0m
+     [1m[94m|[0m           [1m[96m`usize`[0m
+[1m[94m...[0m
+[1m[94m  80[0m [1m[94m|[0m [1m[94m/[0m impl_lentype!(
+[1m[94m  81[0m [1m[94m|[0m [1m[94m|[0m     u8,
+[1m[94m  82[0m [1m[94m|[0m [1m[94m|[0m     u16,
+[1m[94m  83[0m [1m[94m|[0m [1m[94m|[0m     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
+[1m[94m  84[0m [1m[94m|[0m [1m[94m|[0m     u32,
+[1m[94m  85[0m [1m[94m|[0m [1m[94m|[0m     usize
+[1m[94m  86[0m [1m[94m|[0m [1m[94m|[0m );
+     [1m[94m|[0m [1m[94m|_-[0m [1m[94min this macro invocation[0m
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:211:30
+     [1m[94m|[0m
+[1m[94m 211[0m [1m[94m|[0m pub struct VecInner<T, LenT: LenType, S: VecStorage<T> + ?Sized> {
+     [1m[94m|[0m                              [1m[92m^^^^^^^[0m [1m[92mrequired by this bound in `VecInner`[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+     [1m[94m= [0m[1mnote[0m: this error originates in the macro `impl_lentype` (in Nightly builds, run with -Z macro-backtrace for more info)
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the type for type parameter `LenT` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+error|:|src/device.rs|:|1152|:|1152|:|13|:|25|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0283][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m---[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: cannot satisfy `_: heapless::LenType`
+[1m[96mhelp[0m: the following types implement trait `heapless::LenType`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/len_type.rs:71:9
+     [1m[94m|[0m
+[1m[94m  71[0m [1m[94m|[0m           impl LenType for $LenT {}
+     [1m[94m|[0m           [1m[96m^^^^^^^^^^^^^^^^^^^^^^[0m
+     [1m[94m|[0m           [1m[96m|[0m
+     [1m[94m|[0m           [1m[96m`u16`[0m
+     [1m[94m|[0m           [1m[96m`u32`[0m
+     [1m[94m|[0m           [1m[96m`u8`[0m
+     [1m[94m|[0m           [1m[96m`usize`[0m
+[1m[94m...[0m
+[1m[94m  80[0m [1m[94m|[0m [1m[94m/[0m impl_lentype!(
+[1m[94m  81[0m [1m[94m|[0m [1m[94m|[0m     u8,
+[1m[94m  82[0m [1m[94m|[0m [1m[94m|[0m     u16,
+[1m[94m  83[0m [1m[94m|[0m [1m[94m|[0m     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
+[1m[94m  84[0m [1m[94m|[0m [1m[94m|[0m     u32,
+[1m[94m  85[0m [1m[94m|[0m [1m[94m|[0m     usize
+[1m[94m  86[0m [1m[94m|[0m [1m[94m|[0m );
+     [1m[94m|[0m [1m[94m|_-[0m [1m[94min this macro invocation[0m
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:211:30
+     [1m[94m|[0m
+[1m[94m 211[0m [1m[94m|[0m pub struct VecInner<T, LenT: LenType, S: VecStorage<T> + ?Sized> {
+     [1m[94m|[0m                              [1m[92m^^^^^^^[0m [1m[92mrequired by this bound in `VecInner`[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+     [1m[94m= [0m[1mnote[0m: this error originates in the macro `impl_lentype` (in Nightly builds, run with -Z macro-backtrace for more info)
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the type for type parameter `LenT` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+help|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/len_type.rs|:|80|:|86|:|1|:|2|:|the following types implement trait `heapless::LenType`|:|none|:|none
+help|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/len_type.rs|:|80|:|86|:|1|:|2|:|the following types implement trait `heapless::LenType`|:|none|:|none
+help|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/len_type.rs|:|80|:|86|:|1|:|2|:|the following types implement trait `heapless::LenType`|:|none|:|none
+help|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/len_type.rs|:|80|:|86|:|1|:|2|:|the following types implement trait `heapless::LenType`|:|none|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|211|:|211|:|30|:|37|:|required by a bound in `heapless::vec::VecInner`|:|none|:|none
+help|:|src/device.rs|:|1152|:|1152|:|25|:|25|:|consider giving `children` an explicit type, where the type for type parameter `LenT` is specified|:|none|:|: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>
+error|:|src/device.rs|:|1152|:|1152|:|28|:|31|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m---[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: the length of array `[core::mem::MaybeUninit<_>; _]` must be type `usize`
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+error|:|src/device.rs|:|1152|:|1152|:|13|:|25|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m---[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: the length of array `[core::mem::MaybeUninit<_>; _]` must be type `usize`
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+help|:|src/device.rs|:|1152|:|1152|:|25|:|25|:|consider giving `children` an explicit type, where the value of const parameter `N` is specified|:|none|:|: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>
+error|:|src/device.rs|:|1152|:|1152|:|28|:|31|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m---[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: required for `heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<i32>; _]>` to implement `heapless::vec::VecStorage<i32>`
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:211:42
+     [1m[94m|[0m
+[1m[94m 211[0m [1m[94m|[0m pub struct VecInner<T, LenT: LenType, S: VecStorage<T> + ?Sized> {
+     [1m[94m|[0m                                          [1m[92m^^^^^^^^^^^^^[0m [1m[92mrequired by this bound in `VecInner`[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+error|:|src/device.rs|:|1152|:|1152|:|13|:|25|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m---[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: required for `heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<i32>; _]>` to implement `heapless::vec::VecStorage<i32>`
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:211:42
+     [1m[94m|[0m
+[1m[94m 211[0m [1m[94m|[0m pub struct VecInner<T, LenT: LenType, S: VecStorage<T> + ?Sized> {
+     [1m[94m|[0m                                          [1m[92m^^^^^^^^^^^^^[0m [1m[92mrequired by this bound in `VecInner`[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|211|:|211|:|42|:|55|:|required by a bound in `heapless::vec::VecInner`|:|none|:|none
+help|:|src/device.rs|:|1152|:|1152|:|25|:|25|:|consider giving `children` an explicit type, where the value of const parameter `N` is specified|:|none|:|: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>
+error|:|src/device.rs|:|1152|:|1152|:|28|:|38|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m----------[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: required by a const generic parameter in `heapless::vec::VecInner::<T, LenT, heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<T>; N]>>::new`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:283:24
+     [1m[94m|[0m
+[1m[94m 283[0m [1m[94m|[0m impl<T, LenT: LenType, const N: usize> Vec<T, N, LenT> {
+     [1m[94m|[0m                        [1m[92m^^^^^^^^^^^^^^[0m [1m[92mrequired by this const generic parameter in `VecInner::<T, LenT, VecStorageInner<[MaybeUninit<T>; N]>>::new`[0m
+[1m[94m...[0m
+[1m[94m 300[0m [1m[94m|[0m     pub const fn new() -> Self {
+     [1m[94m|[0m                  [1m[94m---[0m [1m[94mrequired by a bound in this associated function[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+error|:|src/device.rs|:|1152|:|1152|:|13|:|25|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m----------[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: required by a const generic parameter in `heapless::vec::VecInner::<T, LenT, heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<T>; N]>>::new`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:283:24
+     [1m[94m|[0m
+[1m[94m 283[0m [1m[94m|[0m impl<T, LenT: LenType, const N: usize> Vec<T, N, LenT> {
+     [1m[94m|[0m                        [1m[92m^^^^^^^^^^^^^^[0m [1m[92mrequired by this const generic parameter in `VecInner::<T, LenT, VecStorageInner<[MaybeUninit<T>; N]>>::new`[0m
+[1m[94m...[0m
+[1m[94m 300[0m [1m[94m|[0m     pub const fn new() -> Self {
+     [1m[94m|[0m                  [1m[94m---[0m [1m[94mrequired by a bound in this associated function[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|300|:|300|:|18|:|21|:|required by a const generic parameter in `heapless::vec::VecInner::<T, LenT, heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<T>; N]>>::new`|:|none|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|283|:|283|:|24|:|38|:|required by a const generic parameter in `heapless::vec::VecInner::<T, LenT, heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<T>; N]>>::new`|:|none|:|none
+help|:|src/device.rs|:|1152|:|1152|:|25|:|25|:|consider giving `children` an explicit type, where the value of const parameter `N` is specified|:|none|:|: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>
+error|:|src/device.rs|:|1152|:|1152|:|28|:|38|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m----------[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: required for `heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<i32>; _]>` to implement `heapless::vec::VecStorage<i32>`
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:211:42
+     [1m[94m|[0m
+[1m[94m 211[0m [1m[94m|[0m pub struct VecInner<T, LenT: LenType, S: VecStorage<T> + ?Sized> {
+     [1m[94m|[0m                                          [1m[92m^^^^^^^^^^^^^[0m [1m[92mrequired by this bound in `VecInner`[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+error|:|src/device.rs|:|1152|:|1152|:|13|:|25|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m   [1m[94m----------[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: required for `heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<i32>; _]>` to implement `heapless::vec::VecStorage<i32>`
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:211:42
+     [1m[94m|[0m
+[1m[94m 211[0m [1m[94m|[0m pub struct VecInner<T, LenT: LenType, S: VecStorage<T> + ?Sized> {
+     [1m[94m|[0m                                          [1m[92m^^^^^^^^^^^^^[0m [1m[92mrequired by this bound in `VecInner`[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|211|:|211|:|42|:|55|:|required by a bound in `heapless::vec::VecInner`|:|none|:|none
+help|:|src/device.rs|:|1152|:|1152|:|25|:|25|:|consider giving `children` an explicit type, where the value of const parameter `N` is specified|:|none|:|: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>
+error|:|src/device.rs|:|1153|:|1153|:|18|:|22|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m
+[1m[94m1153[0m [1m[94m|[0m         children.push(1).unwrap();
+     [1m[94m|[0m                  [1m[94m----[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: required for `heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<i32>; _]>` to implement `heapless::vec::VecStorage<i32>`
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner::<T, LenT, S>::push`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:429:27
+     [1m[94m|[0m
+[1m[94m 429[0m [1m[94m|[0m impl<T, LenT: LenType, S: VecStorage<T> + ?Sized> VecInner<T, LenT, S> {
+     [1m[94m|[0m                           [1m[92m^^^^^^^^^^^^^[0m [1m[92mrequired by this bound in `VecInner::<T, LenT, S>::push`[0m
+[1m[94m...[0m
+[1m[94m 670[0m [1m[94m|[0m     pub fn push(&mut self, item: T) -> Result<(), T> {
+     [1m[94m|[0m            [1m[94m----[0m [1m[94mrequired by a bound in this associated function[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+error|:|src/device.rs|:|1152|:|1152|:|13|:|25|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m
+[1m[94m1153[0m [1m[94m|[0m         children.push(1).unwrap();
+     [1m[94m|[0m                  [1m[94m----[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: required for `heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<i32>; _]>` to implement `heapless::vec::VecStorage<i32>`
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner::<T, LenT, S>::push`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:429:27
+     [1m[94m|[0m
+[1m[94m 429[0m [1m[94m|[0m impl<T, LenT: LenType, S: VecStorage<T> + ?Sized> VecInner<T, LenT, S> {
+     [1m[94m|[0m                           [1m[92m^^^^^^^^^^^^^[0m [1m[92mrequired by this bound in `VecInner::<T, LenT, S>::push`[0m
+[1m[94m...[0m
+[1m[94m 670[0m [1m[94m|[0m     pub fn push(&mut self, item: T) -> Result<(), T> {
+     [1m[94m|[0m            [1m[94m----[0m [1m[94mrequired by a bound in this associated function[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|670|:|670|:|12|:|16|:|required by a bound in `heapless::vec::VecInner::<T, LenT, S>::push`|:|none|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|429|:|429|:|27|:|40|:|required by a bound in `heapless::vec::VecInner::<T, LenT, S>::push`|:|none|:|none
+help|:|src/device.rs|:|1152|:|1152|:|25|:|25|:|consider giving `children` an explicit type, where the value of const parameter `N` is specified|:|none|:|: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>
+error|:|src/device.rs|:|1154|:|1154|:|18|:|22|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m
+[1m[94m1153[0m [1m[94m|[0m         children.push(1).unwrap();
+[1m[94m1154[0m [1m[94m|[0m         children.push(2).unwrap();
+     [1m[94m|[0m                  [1m[94m----[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: required for `heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<i32>; _]>` to implement `heapless::vec::VecStorage<i32>`
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner::<T, LenT, S>::push`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:429:27
+     [1m[94m|[0m
+[1m[94m 429[0m [1m[94m|[0m impl<T, LenT: LenType, S: VecStorage<T> + ?Sized> VecInner<T, LenT, S> {
+     [1m[94m|[0m                           [1m[92m^^^^^^^^^^^^^[0m [1m[92mrequired by this bound in `VecInner::<T, LenT, S>::push`[0m
+[1m[94m...[0m
+[1m[94m 670[0m [1m[94m|[0m     pub fn push(&mut self, item: T) -> Result<(), T> {
+     [1m[94m|[0m            [1m[94m----[0m [1m[94mrequired by a bound in this associated function[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+error|:|src/device.rs|:|1152|:|1152|:|13|:|25|:|type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`|:|[1m[91merror[E0284][0m[1m: type annotations needed for `VecInner<i32, _, VecStorageInner<[MaybeUninit<i32>; _]>>`[0m
+    [1m[94m--> [0msrc/device.rs:1152:13
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m|[0m         let mut children = Vec::new();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^[0m
+[1m[94m1153[0m [1m[94m|[0m         children.push(1).unwrap();
+[1m[94m1154[0m [1m[94m|[0m         children.push(2).unwrap();
+     [1m[94m|[0m                  [1m[94m----[0m [1m[94mtype must be known at this point[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: required for `heapless::vec::storage::VecStorageInner<[core::mem::MaybeUninit<i32>; _]>` to implement `heapless::vec::VecStorage<i32>`
+[1m[92mnote[0m: required by a bound in `heapless::vec::VecInner::<T, LenT, S>::push`
+    [1m[94m--> [0m/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs:429:27
+     [1m[94m|[0m
+[1m[94m 429[0m [1m[94m|[0m impl<T, LenT: LenType, S: VecStorage<T> + ?Sized> VecInner<T, LenT, S> {
+     [1m[94m|[0m                           [1m[92m^^^^^^^^^^^^^[0m [1m[92mrequired by this bound in `VecInner::<T, LenT, S>::push`[0m
+[1m[94m...[0m
+[1m[94m 670[0m [1m[94m|[0m     pub fn push(&mut self, item: T) -> Result<(), T> {
+     [1m[94m|[0m            [1m[94m----[0m [1m[94mrequired by a bound in this associated function[0m
+     [1m[94m= [0m[1mnote[0m: the full name for the type has been written to '/home/anshuman/dev/decktx/uf-crsf/target/bacon/debug/deps/uf_crsf-6273a613b6f4fba7.long-type-641027505673981978.txt'
+     [1m[94m= [0m[1mnote[0m: consider using `--verbose` to print the full type name to the console
+[1m[96mhelp[0m: consider giving `children` an explicit type, where the value of const parameter `N` is specified
+     [1m[94m|[0m
+[1m[94m1152[0m [1m[94m| [0m        let mut children[92m: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>[0m = Vec::new();
+     [1m[94m|[0m                         [92m+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++[0m
+
+|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|670|:|670|:|12|:|16|:|required by a bound in `heapless::vec::VecInner::<T, LenT, S>::push`|:|none|:|none
+note|:|/home/anshuman/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heapless-0.9.1/src/vec/mod.rs|:|429|:|429|:|27|:|40|:|required by a bound in `heapless::vec::VecInner::<T, LenT, S>::push`|:|none|:|none
+help|:|src/device.rs|:|1152|:|1152|:|25|:|25|:|consider giving `children` an explicit type, where the value of const parameter `N` is specified|:|none|:|: heapless::vec::VecInner<_, LenT, heapless::vec::storage::VecStorageInner<[_; N]>>
+error|:|src/device.rs|:|1205|:|1207|:|13|:|15|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/device.rs:1197:21
+     [1m[94m|[0m
+[1m[94m1197[0m [1m[94m|[0m           let entry = ParameterSettingsEntry::new(
+     [1m[94m|[0m                       [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m...[0m
+[1m[94m1205[0m [1m[94m|[0m [1m[94m/[0m             Some(ParameterData::Info {
+[1m[94m1206[0m [1m[94m|[0m [1m[94m|[0m                 info: String::try_from("1.0.0").unwrap(),
+[1m[94m1207[0m [1m[94m|[0m [1m[94m|[0m             }),
+     [1m[94m|[0m [1m[94m|______________-[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1204[0m [91m- [0m            "Version"[91m,[0m
+[1m[94m1205[0m [91m-             Some(ParameterData::Info {[0m
+[1m[94m1206[0m [91m-                 info: String::try_from("1.0.0").unwrap(),[0m
+[1m[94m1207[0m [91m-             })[0m,
+[1m[94m1204[0m [92m+ [0m            "Version",
+     [1m[94m|[0m
+
+|:|none
+error|:|src/device.rs|:|1197|:|1197|:|21|:|48|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/device.rs:1197:21
+     [1m[94m|[0m
+[1m[94m1197[0m [1m[94m|[0m           let entry = ParameterSettingsEntry::new(
+     [1m[94m|[0m                       [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m...[0m
+[1m[94m1205[0m [1m[94m|[0m [1m[94m/[0m             Some(ParameterData::Info {
+[1m[94m1206[0m [1m[94m|[0m [1m[94m|[0m                 info: String::try_from("1.0.0").unwrap(),
+[1m[94m1207[0m [1m[94m|[0m [1m[94m|[0m             }),
+     [1m[94m|[0m [1m[94m|______________-[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1204[0m [91m- [0m            "Version"[91m,[0m
+[1m[94m1205[0m [91m-             Some(ParameterData::Info {[0m
+[1m[94m1206[0m [91m-                 info: String::try_from("1.0.0").unwrap(),[0m
+[1m[94m1207[0m [91m-             })[0m,
+[1m[94m1204[0m [92m+ [0m            "Version",
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/device.rs|:|1204|:|1207|:|22|:|15|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|916|:|916|:|77|:|87|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:916:13
+    [1m[94m|[0m
+[1m[94m916[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Power", Some(data)).unwrap();
+    [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                     [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+    [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+    [1m[94m|[0m
+[1m[94m368[0m [1m[94m|[0m     pub fn new(
+    [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+    [1m[94m|[0m
+[1m[94m916[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Power"[91m, Some(data)[0m).unwrap();
+[1m[94m916[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Power").unwrap();
+    [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|916|:|916|:|13|:|40|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:916:13
+    [1m[94m|[0m
+[1m[94m916[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Power", Some(data)).unwrap();
+    [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                     [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+    [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+    [1m[94m|[0m
+[1m[94m368[0m [1m[94m|[0m     pub fn new(
+    [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+    [1m[94m|[0m
+[1m[94m916[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Power"[91m, Some(data)[0m).unwrap();
+[1m[94m916[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Power").unwrap();
+    [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|916|:|916|:|75|:|87|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|962|:|962|:|78|:|88|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:962:13
+    [1m[94m|[0m
+[1m[94m962[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 5, 0, 0, 0x8C, "Secret", Some(data)).unwrap(); // 0x0C | 0x80
+    [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                      [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+    [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+    [1m[94m|[0m
+[1m[94m368[0m [1m[94m|[0m     pub fn new(
+    [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+    [1m[94m|[0m
+[1m[94m962[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 5, 0, 0, 0x8C, "Secret"[91m, Some(data)[0m).unwrap(); // 0x0C | 0x80
+[1m[94m962[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 5, 0, 0, 0x8C, "Secret").unwrap(); // 0x0C | 0x80
+    [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|962|:|962|:|13|:|40|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:962:13
+    [1m[94m|[0m
+[1m[94m962[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 5, 0, 0, 0x8C, "Secret", Some(data)).unwrap(); // 0x0C | 0x80
+    [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                      [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+    [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+    [1m[94m|[0m
+[1m[94m368[0m [1m[94m|[0m     pub fn new(
+    [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+    [1m[94m|[0m
+[1m[94m962[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 5, 0, 0, 0x8C, "Secret"[91m, Some(data)[0m).unwrap(); // 0x0C | 0x80
+[1m[94m962[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 5, 0, 0, 0x8C, "Secret").unwrap(); // 0x0C | 0x80
+    [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|962|:|962|:|76|:|88|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|990|:|990|:|76|:|86|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:990:13
+    [1m[94m|[0m
+[1m[94m990[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 1, 0, 0, 0x09, "Rate", Some(data)).unwrap();
+    [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                    [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+    [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+    [1m[94m|[0m
+[1m[94m368[0m [1m[94m|[0m     pub fn new(
+    [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+    [1m[94m|[0m
+[1m[94m990[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 1, 0, 0, 0x09, "Rate"[91m, Some(data)[0m).unwrap();
+[1m[94m990[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 1, 0, 0, 0x09, "Rate").unwrap();
+    [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|990|:|990|:|13|:|40|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:990:13
+    [1m[94m|[0m
+[1m[94m990[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 1, 0, 0, 0x09, "Rate", Some(data)).unwrap();
+    [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                    [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+    [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+   [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+    [1m[94m|[0m
+[1m[94m368[0m [1m[94m|[0m     pub fn new(
+    [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+    [1m[94m|[0m
+[1m[94m990[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 1, 0, 0, 0x09, "Rate"[91m, Some(data)[0m).unwrap();
+[1m[94m990[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 1, 0, 0, 0x09, "Rate").unwrap();
+    [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|990|:|990|:|74|:|86|:|remove the extra argument|:|none|:|
+warning|:|src/packets/mod.rs|:|259|:|270|:|9|:|10|:|match expression looks like `matches!` macro|:|[1m[33mwarning[0m[1m: match expression looks like `matches!` macro[0m
+   [1m[94m--> [0msrc/packets/mod.rs:259:9
+    [1m[94m|[0m
+[1m[94m259[0m [1m[94m|[0m [1m[33m/[0m         match self {
+[1m[94m260[0m [1m[94m|[0m [1m[33m|[0m             PacketType::DevicePing
+[1m[94m261[0m [1m[94m|[0m [1m[33m|[0m             | PacketType::DeviceInfo
+[1m[94m262[0m [1m[94m|[0m [1m[33m|[0m             | PacketType::ParameterSettingsEntry
+[1m[94m...[0m   [1m[33m|[0m
+[1m[94m269[0m [1m[94m|[0m [1m[33m|[0m             _ => false,
+[1m[94m270[0m [1m[94m|[0m [1m[33m|[0m         }
+    [1m[94m|[0m [1m[33m|_________^[0m
+    [1m[94m|[0m
+    [1m[94m= [0m[1mhelp[0m: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_like_matches_macro
+    [1m[94m= [0m[1mnote[0m: `#[warn(clippy::match_like_matches_macro)]` on by default
+[1m[96mhelp[0m: use `matches!` directly
+    [1m[94m|[0m
+[1m[94m259[0m [92m~ [0m        [92mmatches!(self, PacketType::DevicePing[0m
+[1m[94m260[0m [92m+             | PacketType::DeviceInfo[0m
+[1m[94m261[0m [92m+             | PacketType::ParameterSettingsEntry[0m
+[1m[94m262[0m [92m+             | PacketType::ParameterRead[0m
+[1m[94m263[0m [92m+             | PacketType::ParameterWrite[0m
+[1m[94m264[0m [92m+             | PacketType::Command[0m
+[1m[94m265[0m [92m+             | PacketType::RadioId[0m
+[1m[94m266[0m [92m+             | PacketType::MspRequest[0m
+[1m[94m267[0m [92m+             | PacketType::MspResponse)[0m
+    [1m[94m|[0m
+
+|:|none
+help|:|src/packets/mod.rs|:|259|:|270|:|9|:|10|:|use `matches!` directly|:|none|:|matches!(self, PacketType::DevicePing
+            | PacketType::DeviceInfo
+            | PacketType::ParameterSettingsEntry
+            | PacketType::ParameterRead
+            | PacketType::ParameterWrite
+            | PacketType::Command
+            | PacketType::RadioId
+            | PacketType::MspRequest
+            | PacketType::MspResponse)
+error|:|src/packets/parameter_settings_entry.rs|:|1030|:|1030|:|76|:|86|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1030:13
+     [1m[94m|[0m
+[1m[94m1030[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x0B, "ROOT", Some(data)).unwrap();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                    [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1030[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x0B, "ROOT"[91m, Some(data)[0m).unwrap();
+[1m[94m1030[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x0B, "ROOT").unwrap();
+     [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|1030|:|1030|:|13|:|40|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1030:13
+     [1m[94m|[0m
+[1m[94m1030[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x0B, "ROOT", Some(data)).unwrap();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                    [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1030[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x0B, "ROOT"[91m, Some(data)[0m).unwrap();
+[1m[94m1030[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x0B, "ROOT").unwrap();
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|1030|:|1030|:|74|:|86|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|1061|:|1061|:|77|:|87|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1061:13
+     [1m[94m|[0m
+[1m[94m1061[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 10, 0, 0, 0x0D, "Bind", Some(data)).unwrap();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                     [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1061[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 10, 0, 0, 0x0D, "Bind"[91m, Some(data)[0m).unwrap();
+[1m[94m1061[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 10, 0, 0, 0x0D, "Bind").unwrap();
+     [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|1061|:|1061|:|13|:|40|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1061:13
+     [1m[94m|[0m
+[1m[94m1061[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 10, 0, 0, 0x0D, "Bind", Some(data)).unwrap();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                     [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1061[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 10, 0, 0, 0x0D, "Bind"[91m, Some(data)[0m).unwrap();
+[1m[94m1061[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 10, 0, 0, 0x0D, "Bind").unwrap();
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|1061|:|1061|:|75|:|87|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|1092|:|1092|:|76|:|86|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1092:13
+     [1m[94m|[0m
+[1m[94m1092[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x0A, "Name", Some(data)).unwrap();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                    [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1092[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x0A, "Name"[91m, Some(data)[0m).unwrap();
+[1m[94m1092[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x0A, "Name").unwrap();
+     [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|1092|:|1092|:|13|:|40|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1092:13
+     [1m[94m|[0m
+[1m[94m1092[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x0A, "Name", Some(data)).unwrap();
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                    [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1092[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x0A, "Name"[91m, Some(data)[0m).unwrap();
+[1m[94m1092[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x0A, "Name").unwrap();
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|1092|:|1092|:|74|:|86|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|1111|:|1111|:|84|:|88|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1111:21
+     [1m[94m|[0m
+[1m[94m1111[0m [1m[94m|[0m         let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x08, "Test", None).unwrap();
+     [1m[94m|[0m                     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                    [1m[94m----[0m [1m[94munexpected argument #8 of type `core::option::Option<_>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1111[0m [91m- [0m        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x08, "Test"[91m, None[0m).unwrap();
+[1m[94m1111[0m [92m+ [0m        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x08, "Test").unwrap();
+     [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|1111|:|1111|:|21|:|48|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1111:21
+     [1m[94m|[0m
+[1m[94m1111[0m [1m[94m|[0m         let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x08, "Test", None).unwrap();
+     [1m[94m|[0m                     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                    [1m[94m----[0m [1m[94munexpected argument #8 of type `core::option::Option<_>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1111[0m [91m- [0m        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x08, "Test"[91m, None[0m).unwrap();
+[1m[94m1111[0m [92m+ [0m        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x08, "Test").unwrap();
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|1111|:|1111|:|82|:|88|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|1180|:|1180|:|88|:|92|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1180:22
+     [1m[94m|[0m
+[1m[94m1180[0m [1m[94m|[0m         let result = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x08, long_name, None);
+     [1m[94m|[0m                      [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                       [1m[94m----[0m [1m[94munexpected argument #8 of type `core::option::Option<_>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1180[0m [91m- [0m        let result = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x08, long_name[91m, None[0m);
+[1m[94m1180[0m [92m+ [0m        let result = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x08, long_name);
+     [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|1180|:|1180|:|22|:|49|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1180:22
+     [1m[94m|[0m
+[1m[94m1180[0m [1m[94m|[0m         let result = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x08, long_name, None);
+     [1m[94m|[0m                      [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                       [1m[94m----[0m [1m[94munexpected argument #8 of type `core::option::Option<_>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1180[0m [91m- [0m        let result = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x08, long_name[91m, None[0m);
+[1m[94m1180[0m [92m+ [0m        let result = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x08, long_name);
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|1180|:|1180|:|86|:|92|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|1205|:|1205|:|82|:|92|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1205:13
+     [1m[94m|[0m
+[1m[94m1205[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x0F, "VTX Param", Some(data))
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                          [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1205[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x0F, "VTX Param"[91m, Some(data)[0m)
+[1m[94m1205[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x0F, "VTX Param")
+     [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|1205|:|1205|:|13|:|40|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1205:13
+     [1m[94m|[0m
+[1m[94m1205[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x0F, "VTX Param", Some(data))
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                          [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1205[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x0F, "VTX Param"[91m, Some(data)[0m)
+[1m[94m1205[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x0F, "VTX Param")
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|1205|:|1205|:|80|:|92|:|remove the extra argument|:|none|:|
+error|:|src/packets/parameter_settings_entry.rs|:|1238|:|1238|:|83|:|93|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1238:13
+     [1m[94m|[0m
+[1m[94m1238[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x8F, "Hidden VTX", Some(data))
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                           [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1238[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x8F, "Hidden VTX"[91m, Some(data)[0m)
+[1m[94m1238[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x8F, "Hidden VTX")
+     [1m[94m|[0m
+
+|:|none
+error|:|src/packets/parameter_settings_entry.rs|:|1238|:|1238|:|13|:|40|:|this function takes 7 arguments but 8 arguments were supplied|:|[1m[91merror[E0061][0m[1m: this function takes 7 arguments but 8 arguments were supplied[0m
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:1238:13
+     [1m[94m|[0m
+[1m[94m1238[0m [1m[94m|[0m             ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x8F, "Hidden VTX", Some(data))
+     [1m[94m|[0m             [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m                                           [1m[94m----------[0m [1m[94munexpected argument #8 of type `core::option::Option<packets::parameter_settings_entry::ParameterData>`[0m
+     [1m[94m|[0m
+[1m[92mnote[0m: associated function defined here
+    [1m[94m--> [0msrc/packets/parameter_settings_entry.rs:368:12
+     [1m[94m|[0m
+[1m[94m 368[0m [1m[94m|[0m     pub fn new(
+     [1m[94m|[0m            [1m[92m^^^[0m
+[1m[96mhelp[0m: remove the extra argument
+     [1m[94m|[0m
+[1m[94m1238[0m [91m- [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x8F, "Hidden VTX"[91m, Some(data)[0m)
+[1m[94m1238[0m [92m+ [0m            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x8F, "Hidden VTX")
+     [1m[94m|[0m
+
+|:|none
+note|:|src/packets/parameter_settings_entry.rs|:|368|:|368|:|12|:|15|:|associated function defined here|:|none|:|none
+help|:|src/packets/parameter_settings_entry.rs|:|1238|:|1238|:|81|:|93|:|remove the extra argument|:|none|:|
+warning|:|src/packets/remote.rs|:|76|:|76|:|9|:|37|:|unused `core::result::Result` that must be used|:|[1m[33mwarning[0m[1m: unused `core::result::Result` that must be used[0m
+  [1m[94m--> [0msrc/packets/remote.rs:76:9
+   [1m[94m|[0m
+[1m[94m76[0m [1m[94m|[0m         p.to_bytes(&mut buffer[3..]);
+   [1m[94m|[0m         [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: this `Result` may be an `Err` variant, which should be handled
+   [1m[94m= [0m[1mnote[0m: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+[1m[96mhelp[0m: use `let _ = ...` to ignore the resulting value
+   [1m[94m|[0m
+[1m[94m76[0m [1m[94m| [0m        [92mlet _ = [0mp.to_bytes(&mut buffer[3..]);
+   [1m[94m|[0m         [92m+++++++[0m
+
+|:|none
+help|:|src/packets/remote.rs|:|76|:|76|:|9|:|9|:|use `let _ = ...` to ignore the resulting value|:|none|:|let _ = 

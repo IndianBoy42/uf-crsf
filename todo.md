@@ -1,0 +1,1 @@
+Build a higher level abstraction around (on top of) @src/packets/parameter_settings_entry.rs (and the corresponding read/write commands) to help construct/parse the whole tree of parameters. It should be built in a state machine form so that it is compatible with any kind of IO backend

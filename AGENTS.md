@@ -2,6 +2,10 @@
 
 This document provides coding guidelines and development commands for agents working on the `uf-crsf` library - a `no_std` Rust library for parsing the TBS Crossfire protocol designed for embedded environments.
 
+ - `spec/crsf.md` - Official CRSF specifications
+ - `spec/elrs_crsf_quirks.md` - Additional nonstandard behaviour of ExpressLRS
+ - `spec/elrs_testing.md` - Description of test cases for ExpressLRS compatibility
+
 ## Project Overview
 
 - **Language**: Rust (Edition 2021)
