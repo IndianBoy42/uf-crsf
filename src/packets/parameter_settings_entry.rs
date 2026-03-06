@@ -912,8 +912,9 @@ mod tests {
             unit: unit_str.clone(),
         };
 
-        let entry =
-            ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Power", Some(data)).unwrap();
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Power")
+            .unwrap()
+            .add_data(data);
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();
@@ -958,8 +959,9 @@ mod tests {
         let data = ParameterData::Info {
             info: String::try_from("Hidden parameter").unwrap(),
         };
-        let entry =
-            ParameterSettingsEntry::new(0xEA, 0xEE, 5, 0, 0, 0x8C, "Secret", Some(data)).unwrap(); // 0x0C | 0x80
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 5, 0, 0, 0x8C, "Secret")
+            .unwrap()
+            .add_data(data); // 0x0C | 0x80
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();
@@ -986,8 +988,9 @@ mod tests {
             unit: unit_str.clone(),
         };
 
-        let entry =
-            ParameterSettingsEntry::new(0xEA, 0xEE, 1, 0, 0, 0x09, "Rate", Some(data)).unwrap();
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 1, 0, 0, 0x09, "Rate")
+            .unwrap()
+            .add_data(data);
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();
@@ -1026,8 +1029,9 @@ mod tests {
             children: children.clone(),
         };
 
-        let entry =
-            ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x0B, "ROOT", Some(data)).unwrap();
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x0B, "ROOT")
+            .unwrap()
+            .add_data(data);
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();
@@ -1057,8 +1061,9 @@ mod tests {
             info: info_str.clone(),
         };
 
-        let entry =
-            ParameterSettingsEntry::new(0xEA, 0xEE, 10, 0, 0, 0x0D, "Bind", Some(data)).unwrap();
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 10, 0, 0, 0x0D, "Bind")
+            .unwrap()
+            .add_data(data);
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();
@@ -1088,8 +1093,9 @@ mod tests {
             max_length: 16,
         };
 
-        let entry =
-            ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x0A, "Name", Some(data)).unwrap();
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x0A, "Name")
+            .unwrap()
+            .add_data(data);
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();
@@ -1108,7 +1114,7 @@ mod tests {
     #[test]
     fn test_parameter_settings_entry_minimal() {
         // Only name, no data
-        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x08, "Test", None).unwrap();
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 4, 0, 0, 0x08, "Test").unwrap();
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();
@@ -1177,7 +1183,7 @@ mod tests {
     #[test]
     fn test_parameter_settings_entry_name_too_long() {
         let long_name = "This name is way too long and should fail validation";
-        let result = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x08, long_name, None);
+        let result = ParameterSettingsEntry::new(0xEA, 0xEE, 0, 0, 0, 0x08, long_name);
         // With MAX_STRING_LEN = 128, this should now pass
         assert!(result.is_ok());
     }
@@ -1201,9 +1207,9 @@ mod tests {
             data: vtx_data.clone(),
         };
 
-        let entry =
-            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x0F, "VTX Param", Some(data))
-                .unwrap();
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x0F, "VTX Param")
+            .unwrap()
+            .add_data(data);
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();
@@ -1234,9 +1240,9 @@ mod tests {
             data: vtx_data.clone(),
         };
 
-        let entry =
-            ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x8F, "Hidden VTX", Some(data))
-                .unwrap(); // 0x0F | 0x80
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 12, 0, 0, 0x8F, "Hidden VTX")
+            .unwrap()
+            .add_data(data); // 0x0F | 0x80
 
         let mut buffer = [0u8; 64];
         let len = entry.to_bytes(&mut buffer).unwrap();

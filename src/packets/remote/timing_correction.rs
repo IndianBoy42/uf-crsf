@@ -59,8 +59,8 @@ mod tests {
         let packet = TimingCorrection::new(50000, -1000);
         let mut buffer = [0u8; 9];
         let len = packet.to_bytes(&mut buffer).unwrap();
-        assert_eq!(len, 9);
-        let round_trip = TimingCorrection::from_bytes(&buffer).unwrap();
+        assert_eq!(len, TimingCorrection::MIN_PAYLOAD_SIZE);
+        let round_trip = TimingCorrection::from_bytes(&buffer[..len]).unwrap();
         assert_eq!(packet, round_trip);
     }
 }

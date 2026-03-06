@@ -287,9 +287,9 @@ fn create_root_folder_parameter() -> ParameterSettingsEntry {
         0,                                // Parent folder (0 = ROOT)
         ParameterDataType::Folder as u8,
         "ROOT",
-        Some(ParameterData::Folder { children }),
     )
     .unwrap()
+    .add_data(ParameterData::Folder { children })
 }
 
 fn create_packet_rate_parameter() -> ParameterSettingsEntry {
@@ -307,16 +307,16 @@ fn create_packet_rate_parameter() -> ParameterSettingsEntry {
         0, // Parent folder is ROOT
         ParameterDataType::TextSelection as u8,
         "Packet Rate",
-        Some(ParameterData::TextSelection {
-            options,
-            value: 2,
-            min: 0,
-            max: 3,
-            default: 2,
-            unit,
-        }),
     )
     .unwrap()
+    .add_data(ParameterData::TextSelection {
+        options,
+        value: 2,
+        min: 0,
+        max: 3,
+        default: 2,
+        unit,
+    })
 }
 
 fn create_tx_power_parameter() -> ParameterSettingsEntry {
@@ -332,17 +332,17 @@ fn create_tx_power_parameter() -> ParameterSettingsEntry {
         0,
         ParameterDataType::Float as u8,
         "TX Power",
-        Some(ParameterData::Float {
-            value: 100,
-            min: 10,
-            max: 1000,
-            default: 100,
-            decimal_point: 0,
-            step_size: 10,
-            unit,
-        }),
     )
     .unwrap()
+    .add_data(ParameterData::Float {
+        value: 100,
+        min: 10,
+        max: 1000,
+        default: 100,
+        decimal_point: 0,
+        step_size: 10,
+        unit,
+    })
 }
 
 fn create_device_name_parameter() -> ParameterSettingsEntry {
@@ -358,12 +358,12 @@ fn create_device_name_parameter() -> ParameterSettingsEntry {
         0,
         ParameterDataType::String as u8,
         "Device Name",
-        Some(ParameterData::String {
-            value,
-            max_length: 16,
-        }),
     )
     .unwrap()
+    .add_data(ParameterData::String {
+        value,
+        max_length: 16,
+    })
 }
 
 fn create_bind_command_parameter() -> ParameterSettingsEntry {
@@ -379,11 +379,11 @@ fn create_bind_command_parameter() -> ParameterSettingsEntry {
         0,
         ParameterDataType::Command as u8,
         "Bind",
-        Some(ParameterData::Command {
-            status: 0,    // Idle
-            timeout: 100, // 10 seconds
-            info,
-        }),
     )
     .unwrap()
+    .add_data(ParameterData::Command {
+        status: 0,    // Idle
+        timeout: 100, // 10 seconds
+        info,
+    })
 }

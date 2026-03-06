@@ -82,11 +82,11 @@ impl MockElrsDevice {
                     0, // Parent
                     ParameterDataType::Folder as u8,
                     "ROOT",
-                    Some(ParameterData::Folder {
-                        children: root_children,
-                    }),
                 )
-                .unwrap(),
+                .unwrap()
+                .add_data(ParameterData::Folder {
+                    children: root_children,
+                }),
             )
             .unwrap();
         param_values.push(None).unwrap();
@@ -108,16 +108,16 @@ impl MockElrsDevice {
                     0,
                     ParameterDataType::TextSelection as u8,
                     "Packet Rate",
-                    Some(ParameterData::TextSelection {
-                        options,
-                        value: 2,
-                        min: 0,
-                        max: 3,
-                        default: 2,
-                        unit,
-                    }),
                 )
-                .unwrap(),
+                .unwrap()
+                .add_data(ParameterData::TextSelection {
+                    options,
+                    value: 2,
+                    min: 0,
+                    max: 3,
+                    default: 2,
+                    unit,
+                }),
             )
             .unwrap();
         let mut value = Vec::new();
@@ -138,17 +138,17 @@ impl MockElrsDevice {
                     0,
                     ParameterDataType::Float as u8,
                     "TX Power",
-                    Some(ParameterData::Float {
-                        value: 100,
-                        min: 10,
-                        max: 1000,
-                        default: 100,
-                        decimal_point: 0,
-                        step_size: 10,
-                        unit,
-                    }),
                 )
-                .unwrap(),
+                .unwrap()
+                .add_data(ParameterData::Float {
+                    value: 100,
+                    min: 10,
+                    max: 1000,
+                    default: 100,
+                    decimal_point: 0,
+                    step_size: 10,
+                    unit,
+                }),
             )
             .unwrap();
         let mut value = Vec::new();
@@ -170,16 +170,16 @@ impl MockElrsDevice {
                     0,
                     ParameterDataType::TextSelection as u8,
                     "Switch Mode",
-                    Some(ParameterData::TextSelection {
-                        options,
-                        value: 0,
-                        min: 0,
-                        max: 16,
-                        default: 0,
-                        unit,
-                    }),
                 )
-                .unwrap(),
+                .unwrap()
+                .add_data(ParameterData::TextSelection {
+                    options,
+                    value: 0,
+                    min: 0,
+                    max: 16,
+                    default: 0,
+                    unit,
+                }),
             )
             .unwrap();
         let mut value = Vec::new();
@@ -200,13 +200,13 @@ impl MockElrsDevice {
                     0,
                     ParameterDataType::Command as u8,
                     "Bind",
-                    Some(ParameterData::Command {
-                        status: 0,
-                        timeout: 100,
-                        info,
-                    }),
                 )
-                .unwrap(),
+                .unwrap()
+                .add_data(ParameterData::Command {
+                    status: 0,
+                    timeout: 100,
+                    info,
+                }),
             )
             .unwrap();
         param_values.push(None).unwrap();
@@ -225,16 +225,16 @@ impl MockElrsDevice {
                     0,
                     ParameterDataType::TextSelection as u8,
                     "Telemetry Rate",
-                    Some(ParameterData::TextSelection {
-                        options,
-                        value: 5,
-                        min: 0,
-                        max: 6,
-                        default: 5,
-                        unit,
-                    }),
                 )
-                .unwrap(),
+                .unwrap()
+                .add_data(ParameterData::TextSelection {
+                    options,
+                    value: 5,
+                    min: 0,
+                    max: 6,
+                    default: 5,
+                    unit,
+                }),
             )
             .unwrap();
         let mut value = Vec::new();

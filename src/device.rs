@@ -1134,7 +1134,6 @@ mod tests {
             0,
             ParameterDataType::Float as u8,
             "TX Power",
-            Some(),
         )
         .unwrap();
 
@@ -1149,7 +1148,7 @@ mod tests {
 
     #[test]
     fn test_parameter_folder() {
-        let mut children = Vec::new();
+        let mut children: Vec<u8, 32> = Vec::new();
         children.push(1).unwrap();
         children.push(2).unwrap();
 
@@ -1163,15 +1162,7 @@ mod tests {
             "ROOT",
         )
         .unwrap()
-        .add_data(ParameterData::Float {
-            value: 2000,
-            min: 0,
-            max: 10000,
-            default: 2000,
-            decimal_point: 0,
-            step_size: 100,
-            unit: String::try_from("mW").unwrap(),
-        });
+        .add_data(ParameterData::Folder { children });
 
         let param = Parameter::from_entry(0, &entry);
         assert!(param.is_folder());
@@ -1202,11 +1193,11 @@ mod tests {
             0,
             ParameterDataType::Info as u8,
             "Version",
-            Some(ParameterData::Info {
-                info: String::try_from("1.0.0").unwrap(),
-            }),
         )
-        .unwrap();
+        .unwrap()
+        .add_data(ParameterData::Info {
+            info: String::try_from("1.0.0").unwrap(),
+        });
 
         let param = Parameter::from_entry(0, &entry);
         assert!(device.add_parameter(param));
