@@ -47,7 +47,7 @@ pub enum State {
     /// If the length is invalid, the parser returns
     /// [`CrsfStreamError::InvalidPacketLength`] and resets to
     /// `AwaitingSync`.
-    AwaitingLenth,
+    AwaitingLength,
     /// Reading payload bytes.
     ///
     /// The `n` parameter indicates the total number of bytes to read
@@ -333,14 +333,17 @@ impl CrsfParser {
     ) -> Result<Option<RawCrsfPacket<'_>>, CrsfStreamError> {
         match self.state {
             State::AwaitingSync => {
-                if self.try_start_frame_from_sync(byte) {
+                if PacketAddress::try_from_primitive(byte).is_ok() {
+                    self.position = 0;
+                    self.buffer[self.position] = byte;
+                    self.state = State::AwaitingLength;
                     Ok(None)
                 } else {
                     self.state = State::AwaitingSync;
                     Err(CrsfStreamError::InvalidSync(byte))
                 }
             }
-            State::AwaitingLenth => {
+            State::AwaitingLength => {
                 let n = byte as usize + 2;
 
                 if !(constants::CRSF_MIN_PACKET_SIZE..constants::CRSF_MAX_PACKET_SIZE).contains(&n)
@@ -577,7 +580,7 @@ impl CrsfParser {
         if PacketAddress::try_from_primitive(byte).is_ok() {
             self.position = 0;
             self.buffer[self.position] = byte;
-            self.state = State::AwaitingLenth;
+            self.state = State::AwaitingLength;
             true
         } else {
             false
