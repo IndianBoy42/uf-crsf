@@ -6,9 +6,23 @@ use libm::{logf, powf};
 
 /// Represents a Barometric Altitude & Vertical Speed packet.
 ///
-/// This frame allows sending altitude and vertical speed in a bit-efficient way.
-/// It combines decimeter-precision altitude with a 32-km range and
-/// 3cm/s-precision vertical speed with a 25m/s range into just 3 bytes.
+/// This frame sends altitude and vertical speed in a bit-efficient way using 3 bytes.
+///
+/// # Altitude Encoding (16 bits)
+/// Uses dual-mode encoding based on MSB:
+/// - MSB = 0: Altitude in decimeters with -10000dm offset (range: -1000m to ~2276.7m)
+///   - Value 0 represents -1000m, value 10000 represents 0m (start altitude)
+///   - Maximum value 0x7fff (32767) represents 22767dm = 2276.7m
+/// - MSB = 1: Altitude in meters, no offset (range: ~3276m)
+///   - Values 0x8000 to 0xffff represent 0m to 32767m
+///
+/// # Vertical Speed Encoding (8 bits, signed)
+/// Uses logarithmic compression for higher precision at low speeds:
+/// - Range: ±2500 cm/s (±25 m/s)
+/// - Precision varies by speed:
+///   - ~3 cm/s precision at low speeds (near 0)
+///   - ~70 cm/s precision at speeds around 25 m/s
+/// - Constants: KL=100.0 (linearity), KR=0.026 (range)
 #[derive(Default, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BaroAltitude {

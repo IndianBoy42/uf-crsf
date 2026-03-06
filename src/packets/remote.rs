@@ -73,7 +73,7 @@ impl Remote {
         buffer[0] = self.dst_addr;
         buffer[1] = self.src_addr;
         buffer[2] = R::SUB_TYPE;
-        p.to_bytes(&mut buffer[3..]);
+        let _ = p.to_bytes(&mut buffer[3..]);
         Ok(R::packet_len())
     }
 }

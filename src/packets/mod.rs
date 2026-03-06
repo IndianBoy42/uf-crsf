@@ -271,18 +271,18 @@ pub enum PacketType {
 
 impl PacketType {
     pub fn is_extended(self) -> bool {
-        match self {
+        matches!(
+            self,
             PacketType::DevicePing
-            | PacketType::DeviceInfo
-            | PacketType::ParameterSettingsEntry
-            | PacketType::ParameterRead
-            | PacketType::ParameterWrite
-            | PacketType::Command
-            | PacketType::RadioId
-            | PacketType::MspRequest
-            | PacketType::MspResponse => true,
-            _ => false,
-        }
+                | PacketType::DeviceInfo
+                | PacketType::ParameterSettingsEntry
+                | PacketType::ParameterRead
+                | PacketType::ParameterWrite
+                | PacketType::Command
+                | PacketType::RadioId
+                | PacketType::MspRequest
+                | PacketType::MspResponse
+        )
     }
 }
 
