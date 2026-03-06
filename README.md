@@ -123,79 +123,87 @@ fn main() {
 }
 ```
 
+## Troubleshooting
 
-Here is a basic example of how to parse and print telemetry `CRSF` packets from an ELRS `TX16S` radio controller, though it should work with any other `EdgeTX` device. Simply configure telemetry mirroring to a USB serial port and connect the controller to your PC.
+### Common Issues
 
-```rust no_run
-use std::env;
-use std::io::ErrorKind;
-use std::process::exit;
-use std::time::Duration;
-use uf_crsf::CrsfParser;
+#### CRC Errors
+**Symptom:** Frequent `InvalidCrc` errors when parsing packets.
 
-fn main() {
-    let ports = match serialport::available_ports() {
-        Ok(ports) => ports,
-        Err(e) => {
-            eprintln!("Failed to enumerate serial ports: {}", e);
-            exit(1);
-        }
-    };
+**Possible Causes:**
+- **Electrical noise** on the serial line - Check wiring, ensure proper grounding
+- **Baud rate mismatch** - CRSF typically uses 420,000 baud for ExpressLRS
+- **Weak RF link** - If receiving over wireless, check antenna connections
+- **UART buffer overflow** - Increase RX buffer size or process data faster
 
-    if ports.is_empty() {
-        eprintln!("No serial ports found.");
-        eprintln!("Please specify a serial port path as an argument.");
-        exit(1);
-    }
+**Solutions:**
+1. Verify UART configuration: 8 data bits, no parity, 1 stop bit (8N1)
+2. Check that baud rate matches your hardware (420,000 for ELRS, 115,200 for standard CRSF)
+3. Ensure CTS/RTS flow control is disabled if not used
+4. Use shorter cables or add termination resistors for high-speed signals
 
-    let path = env::args().nth(1).unwrap_or_else(|| {
-        const DEFAULT_PORT: &str = "/dev/tty.usbmodem00000000001B1";
-        if ports.iter().any(|p| p.port_name == DEFAULT_PORT) {
-            println!(
-                "No serial port specified. Using default port: {}",
-                DEFAULT_PORT
-            );
-            DEFAULT_PORT.to_string()
-        } else {
-            println!("No serial port specified. Available ports:");
-            for p in &ports {
-                println!("  {}", p.port_name);
-            }
-            println!("\nUsing first available port: {}", ports[0].port_name);
-            ports[0].port_name.clone()
-        }
-    });
+#### Sync Errors
+**Symptom:** `InvalidSync` errors or parser not recognizing packets.
 
-    let mut port = serialport::new(&path, 420_000)
-        .timeout(Duration::from_millis(10))
-        .open()
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to open serial port '{}': {}", &path, e);
-            exit(1);
-        });
+**Possible Causes:**
+- **Non-CRSF data** on the line (e.g., debug output from other components)
+- **Incorrect start byte** - CRSF packets start with device address (0xC8-0xEA)
+- **Byte alignment issues** - UART framing errors
 
-    let mut buf = [0; 1024];
-    let mut parser = CrsfParser::new();
-    println!("Reading from serial port '{}'...", path);
-    loop {
-        match port.read(buf.as_mut_slice()) {
-            Ok(n) => {
-                for packet in parser.iter_packets(&buf[..n]) {
-                    println!("{:?}", packet);
-                }
-            }
-            Err(ref e) if e.kind() == ErrorKind::TimedOut => {
-                // This is expected when no data is coming in
-            }
-            Err(e) => {
-                eprintln!("Error reading from serial port: {}", e);
-                break;
-            }
-        }
-    }
-}
+**Solutions:**
+1. The parser automatically resynchronizes - just continue feeding bytes
+2. Check that the connected device is actually sending CRSF protocol
+3. Verify wiring - TX/RX may be swapped
+4. Ensure device is powered and transmitting
 
-```
+#### Buffer Overflow
+**Symptom:** `InputBufferTooSmall` errors in blocking/async readers.
+
+**Cause:** Reading faster than parsing can process.
+
+**Solutions:**
+1. Increase buffer size in reader (modify `BLOCKING_IO_BUFFER_SIZE` or `ASYNC_IO_BUFFER_SIZE`)
+2. Process packets more frequently in your main loop
+3. Check for blocking operations in packet handlers
+
+### Platform-Specific Tips
+
+#### STM32 (Cortex-M)
+- **Use DMA with circular buffers** for efficient reception
+- **Check UART overrun flag (ORE)** if data is lost
+- **Verify USART clock** is enabled in RCC
+- Typical setup: USART1, 420,000 baud, 8N1, DMA RX
+
+#### ESP32
+- **Increase UART RX buffer size** in menuconfig (default 256, recommend 1024+)
+- **Use hardware UART** (not SoftwareSerial) - SoftwareSerial is too slow for CRSF
+- **Check WiFi coexistence** - WiFi can interfere with high-speed UART
+- **UART FIFO threshold** - Configure appropriately for your data rate
+
+#### RP2040
+- **Use PIO for high-speed UART** if standard UART can't keep up
+- **Check for UART RX FIFO overrun**
+- **Verify GPIO pin configuration** - TX/RX may need swapping
+- **Clock domain issues** - Ensure consistent clocking when reading from different cores
+
+#### Desktop/Laptop (Linux/Windows)
+- **Check USB driver** is loaded for your serial adapter
+- **Verify cable connections** - USB-serial adapters can be flaky
+- **Ensure correct port** is selected (check `serialport::available_ports()`)
+- **Permissions** - May need to add user to `dialout` group on Linux
+
+### Debugging Tips
+
+1. **Use `push_byte_raw()`** to inspect packet types before full parsing
+2. **Enable defmt logging** (with `defmt` feature) for structured logging on embedded
+3. **Logic analyzer** - Capture actual traffic to verify protocol compliance
+4. **Check packet length** - CRSF packets are 4-64 bytes; larger frames indicate corruption
+
+### Getting Help
+
+- **GitHub Issues:** https://github.com/jettify/uf-crsf/issues
+- **CRSF Protocol Spec:** https://github.com/tbs-fpv/tbs-crsf-spec
+- **ExpressLRS Documentation:** https://github.com/ExpressLRS/ExpressLRS
 
 ## License
 
