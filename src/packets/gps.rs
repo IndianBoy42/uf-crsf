@@ -16,12 +16,22 @@ pub struct Gps {
     /// Heading in 0.01 degree units.
     pub heading: u16,
     /// Altitude with 1000m offset.
+    ///
+    /// The CRSF protocol stores altitude with a 1000 meter offset to allow
+    /// representing altitudes from -1000m to 64535m using an unsigned u16.
+    /// - Raw value 0 corresponds to -1000m (below sea level)
+    /// - Raw value 1000 corresponds to 0m (sea level)
+    /// - Raw value 2000 corresponds to 1000m above sea level
+    ///
+    /// Use [`Self::altitude_meters`] to get the actual altitude in meters
+    /// and [`Self::set_altitude_meters`] to set altitude from meters.
     pub altitude: u16,
     /// Number of satellites in view.
     pub satellites: u8,
 }
 
 impl Gps {
+    /// Creates a new GPS packet with raw values.
     pub fn new(
         latitude: i32,
         longitude: i32,
@@ -38,6 +48,91 @@ impl Gps {
             altitude,
             satellites,
         })
+    }
+
+    /// Creates a GPS packet from components with altitude in meters.
+    ///
+    /// This constructor handles the 1000m offset for altitude automatically.
+    ///
+    /// # Arguments
+    ///
+    /// * `latitude` - Latitude in degrees * 10^7
+    /// * `longitude` - Longitude in degrees * 10^7
+    /// * `groundspeed` - Groundspeed in 0.01 km/h units
+    /// * `heading` - Heading in 0.01 degree units
+    /// * `altitude_meters` - Altitude in meters (e.g., -500 for 500m below sea level,
+    ///   0 for sea level, 1500 for 1500m above sea level)
+    /// * `satellites` - Number of satellites in view
+    ///
+    /// # Errors
+    ///
+    /// Returns `CrsfParsingError::InvalidPayload` if the altitude in meters
+    /// is outside the representable range of -1000m to 64535m.
+    pub fn from_components(
+        latitude: i32,
+        longitude: i32,
+        groundspeed: u16,
+        heading: u16,
+        altitude_meters: i32,
+        satellites: u8,
+    ) -> Result<Self, CrsfParsingError> {
+        let altitude_raw = Self::meters_to_raw(altitude_meters)?;
+        Ok(Self {
+            latitude,
+            longitude,
+            groundspeed,
+            heading,
+            altitude: altitude_raw,
+            satellites,
+        })
+    }
+
+    /// Returns the altitude in meters, accounting for the 1000m offset.
+    ///
+    /// The CRSF protocol stores altitude with a 1000m offset:
+    /// - Raw value 0 = -1000m
+    /// - Raw value 1000 = 0m (sea level)
+    /// - Raw value 2000 = 1000m
+    ///
+    /// # Returns
+    ///
+    /// The actual altitude in meters as an i32.
+    pub fn altitude_meters(&self) -> i32 {
+        i32::from(self.altitude) - 1000
+    }
+
+    /// Sets the altitude from meters, applying the 1000m offset.
+    ///
+    /// # Arguments
+    ///
+    /// * `meters` - The altitude in meters (e.g., -500 for 500m below sea level,
+    ///   0 for sea level, 1500 for 1500m above sea level)
+    ///
+    /// # Errors
+    ///
+    /// Returns `CrsfParsingError::InvalidPayload` if the altitude is outside
+    /// the representable range of -1000m to 64535m.
+    pub fn set_altitude_meters(&mut self, meters: i32) -> Result<(), CrsfParsingError> {
+        self.altitude = Self::meters_to_raw(meters)?;
+        Ok(())
+    }
+
+    /// Converts altitude in meters to raw CRSF value with 1000m offset.
+    ///
+    /// # Arguments
+    ///
+    /// * `meters` - The altitude in meters
+    ///
+    /// # Errors
+    ///
+    /// Returns `CrsfParsingError::InvalidPayload` if the altitude is outside
+    /// the representable range of -1000m to 64535m.
+    fn meters_to_raw(meters: i32) -> Result<u16, CrsfParsingError> {
+        let raw = meters + 1000;
+        if raw < 0 || raw > u16::MAX as i32 {
+            return Err(CrsfParsingError::InvalidPayload);
+        }
+        Ok(raw as u16)
     }
 }
 
@@ -188,5 +283,130 @@ mod tests {
         assert_eq!(buffer, payload);
         let parsed_gps = Gps::from_bytes(&buffer).unwrap();
         assert_eq!(gps, parsed_gps);
+    }
+
+    // Altitude offset handling tests
+    #[test]
+    fn test_altitude_negative_below_sea_level() {
+        // 500m below sea level
+        let gps = Gps::from_components(0, 0, 0, 0, -500, 0).unwrap();
+        assert_eq!(gps.altitude, 500); // raw value = -500 + 1000 = 500
+        assert_eq!(gps.altitude_meters(), -500);
+    }
+
+    #[test]
+    fn test_altitude_sea_level() {
+        // At sea level
+        let gps = Gps::from_components(0, 0, 0, 0, 0, 0).unwrap();
+        assert_eq!(gps.altitude, 1000); // raw value = 0 + 1000 = 1000
+        assert_eq!(gps.altitude_meters(), 0);
+    }
+
+    #[test]
+    fn test_altitude_positive_above_sea_level() {
+        // 1500m above sea level
+        let gps = Gps::from_components(0, 0, 0, 0, 1500, 0).unwrap();
+        assert_eq!(gps.altitude, 2500); // raw value = 1500 + 1000 = 2500
+        assert_eq!(gps.altitude_meters(), 1500);
+    }
+
+    #[test]
+    fn test_altitude_minimum_boundary() {
+        // Minimum representable altitude: -1000m
+        let gps = Gps::from_components(0, 0, 0, 0, -1000, 0).unwrap();
+        assert_eq!(gps.altitude, 0); // raw value = -1000 + 1000 = 0
+        assert_eq!(gps.altitude_meters(), -1000);
+    }
+
+    #[test]
+    fn test_altitude_maximum_boundary() {
+        // Maximum representable altitude: 64535m (u16::MAX - 1000)
+        let gps = Gps::from_components(0, 0, 0, 0, 64535, 0).unwrap();
+        assert_eq!(gps.altitude, 65535); // raw value = 64535 + 1000 = 65535
+        assert_eq!(gps.altitude_meters(), 64535);
+    }
+
+    #[test]
+    fn test_altitude_too_low_error() {
+        // Below minimum: -1001m should fail
+        let result = Gps::from_components(0, 0, 0, 0, -1001, 0);
+        assert!(matches!(result, Err(CrsfParsingError::InvalidPayload)));
+    }
+
+    #[test]
+    fn test_altitude_too_high_error() {
+        // Above maximum: 64536m should fail
+        let result = Gps::from_components(0, 0, 0, 0, 64536, 0);
+        assert!(matches!(result, Err(CrsfParsingError::InvalidPayload)));
+    }
+
+    #[test]
+    fn test_set_altitude_meters() {
+        let mut gps = Gps::new(0, 0, 0, 0, 0, 0).unwrap();
+
+        // Set to sea level
+        gps.set_altitude_meters(0).unwrap();
+        assert_eq!(gps.altitude, 1000);
+
+        // Set to 500m above
+        gps.set_altitude_meters(500).unwrap();
+        assert_eq!(gps.altitude, 1500);
+
+        // Set to 200m below
+        gps.set_altitude_meters(-200).unwrap();
+        assert_eq!(gps.altitude, 800);
+    }
+
+    #[test]
+    fn test_set_altitude_meters_out_of_range() {
+        let mut gps = Gps::new(0, 0, 0, 0, 0, 0).unwrap();
+
+        // Too low
+        assert!(matches!(
+            gps.set_altitude_meters(-1001),
+            Err(CrsfParsingError::InvalidPayload)
+        ));
+
+        // Too high
+        assert!(matches!(
+            gps.set_altitude_meters(64536),
+            Err(CrsfParsingError::InvalidPayload)
+        ));
+    }
+
+    #[test]
+    fn test_altitude_round_trip() {
+        // Test that altitude_meters and from_components are inverse operations
+        let test_altitudes = [
+            -1000i32, // Minimum
+            -500,     // Below sea level
+            -1,       // Just below sea level
+            0,        // Sea level
+            1,        // Just above sea level
+            500,      // Above sea level
+            1000,     // 1km
+            64535,    // Maximum
+        ];
+
+        for &alt in &test_altitudes {
+            let gps = Gps::from_components(0, 0, 0, 0, alt, 0).unwrap();
+            assert_eq!(
+                gps.altitude_meters(),
+                alt,
+                "Altitude round-trip failed for {}m",
+                alt
+            );
+        }
+    }
+
+    #[test]
+    fn test_hardware_altitude_with_offset() {
+        // From test_gps_from_hardware_bytes: raw altitude = 1003
+        // This should correspond to 3m above sea level
+        let payload: [u8; 15] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 235, 0];
+        let gps = Gps::from_bytes(&payload).unwrap();
+
+        assert_eq!(gps.altitude, 1003);
+        assert_eq!(gps.altitude_meters(), 3); // 1003 - 1000 = 3m
     }
 }
