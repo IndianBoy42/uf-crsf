@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- [**breaking**] Changed `RcChannelsPacked` from tuple struct `RcChannelsPacked([u16; 16])` to named field struct `RcChannelsPacked { channels: [u16; 16] }`. This affects construction and field access syntax.
+
+### Added
+- Added conversion methods `ticks_to_us()` and `us_to_ticks()` to `RcChannelsPacked` for converting between CRSF ticks and microseconds
+- Added comprehensive documentation with examples for `RcChannelsPacked`
+
+### Fixed
+- Fixed typo `AwaitingLenth` → `AwaitingLength` in parser state machine
+- Fixed typo `NotImlemented` → `NotImplemented` in packet enum
+
 ## [0.6.0](https://github.com/jettify/uf-crsf/compare/v0.5.0...v0.6.0) - 2026-04-22
 
 ### Added
