@@ -136,7 +136,7 @@ pub enum Packet {
     DeviceInformation(DeviceInformation),
     DevicePing(DevicePing),
     Game(Game),
-    NotImlemented(PacketType, usize),
+    NotImplemented(PacketType, usize),
     Command(DirectCommand),
     Logging(Logging),
     ParameterRead(ParameterRead),
@@ -212,7 +212,7 @@ impl Packet {
             ArduPilotPassthrough::PACKET_TYPE => Ok(Self::ArduPilotPassthrough(
                 ArduPilotPassthrough::from_bytes(data)?,
             )),
-            _ => Ok(Packet::NotImlemented(
+            _ => Ok(Packet::NotImplemented(
                 packet_type,
                 raw_packet.payload().len(),
             )),

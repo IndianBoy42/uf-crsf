@@ -29,7 +29,7 @@ use embedded_io::ErrorKind;
 /// | Error Variant | Common Cause | Recovery |
 /// |---------------|--------------|----------|
 /// | `UnexpectedPacketType` | Device sends packet type you don't expect | Log and skip |
-/// | `PacketNotImlemented` | Library hasn't implemented this packet type yet | Log and skip |
+/// | `PacketNotImplemented` | Library hasn't implemented this packet type yet | Log and skip |
 /// | `InvalidPayloadLength` | Payload size doesn't match expected packet type | Discard packet |
 /// | `InvalidPayload` | Payload data is malformed or out of range | Discard packet |
 /// | `BufferOverflow` | Internal buffer too small for packet data | Increase buffer size (shouldn't occur in practice) |
@@ -83,7 +83,7 @@ pub enum CrsfParsingError {
     /// ```ignore
     /// match Packet::parse(&raw_packet) {
     ///     Ok(packet) => handle_packet(packet),
-    ///     Err(CrsfParsingError::PacketNotImlemented(type)) => {
+    ///     Err(CrsfParsingError::PacketNotImplemented(type)) => {
     ///         // Access raw bytes for manual handling
     ///         let payload = raw_packet.payload();
     ///         handle_custom_packet(type, payload);
@@ -91,7 +91,7 @@ pub enum CrsfParsingError {
     ///     Err(e) => return Err(e),
     /// }
     /// ```
-    PacketNotImlemented(u8),
+    PacketNotImplemented(u8),
 
     /// The payload size does not match the expected size for this packet type.
     ///
