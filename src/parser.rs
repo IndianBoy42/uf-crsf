@@ -739,7 +739,7 @@ mod tests {
         assert!(results[0].is_ok());
         assert!(results[1].is_ok());
         assert_eq!(
-            Packet::RCChannels(RcChannelsPacked(expected)),
+            Packet::RCChannels(RcChannelsPacked { channels: expected }),
             results[1].clone().ok().unwrap()
         );
     }
