@@ -136,11 +136,23 @@ impl CrsfPacket for DeviceInformation {
             return Err(CrsfParsingError::InvalidPayloadLength);
         }
 
-        let serial_number = u32::from_be_bytes(payload[offset..offset + 4].try_into().unwrap());
+        let serial_number = u32::from_be_bytes(
+            payload[offset..offset + 4]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
         offset += 4;
-        let hardware_id = u32::from_be_bytes(payload[offset..offset + 4].try_into().unwrap());
+        let hardware_id = u32::from_be_bytes(
+            payload[offset..offset + 4]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
         offset += 4;
-        let firmware_id = u32::from_be_bytes(payload[offset..offset + 4].try_into().unwrap());
+        let firmware_id = u32::from_be_bytes(
+            payload[offset..offset + 4]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
         offset += 4;
         let parameters_total = payload[offset];
         offset += 1;
