@@ -93,14 +93,46 @@ impl CrsfPacket for GpsExtended {
 
         Ok(Self {
             fix_type: data[0],
-            n_speed: i16::from_be_bytes(data[1..3].try_into().unwrap()),
-            e_speed: i16::from_be_bytes(data[3..5].try_into().unwrap()),
-            v_speed: i16::from_be_bytes(data[5..7].try_into().unwrap()),
-            h_speed_acc: i16::from_be_bytes(data[7..9].try_into().unwrap()),
-            track_acc: i16::from_be_bytes(data[9..11].try_into().unwrap()),
-            alt_ellipsoid: i16::from_be_bytes(data[11..13].try_into().unwrap()),
-            h_acc: i16::from_be_bytes(data[13..15].try_into().unwrap()),
-            v_acc: i16::from_be_bytes(data[15..17].try_into().unwrap()),
+            n_speed: i16::from_be_bytes(
+                data[1..3]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            e_speed: i16::from_be_bytes(
+                data[3..5]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            v_speed: i16::from_be_bytes(
+                data[5..7]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            h_speed_acc: i16::from_be_bytes(
+                data[7..9]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            track_acc: i16::from_be_bytes(
+                data[9..11]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            alt_ellipsoid: i16::from_be_bytes(
+                data[11..13]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            h_acc: i16::from_be_bytes(
+                data[13..15]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            v_acc: i16::from_be_bytes(
+                data[15..17]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
             reserved: data[17],
             h_dop: data[18],
             v_dop: data[19],

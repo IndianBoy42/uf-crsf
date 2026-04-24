@@ -60,15 +60,24 @@ impl CrsfPacket for GpsTime {
         if data.len() != Self::MIN_PAYLOAD_SIZE {
             return Err(CrsfParsingError::InvalidPayloadLength);
         }
-
+        let year = i16::from_be_bytes(
+            data[0..2]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
+        let millisecond = u16::from_be_bytes(
+            data[7..9]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
         Ok(Self {
-            year: i16::from_be_bytes(data[0..2].try_into().unwrap()),
+            year,
             month: data[2],
             day: data[3],
             hour: data[4],
             minute: data[5],
             second: data[6],
-            millisecond: u16::from_be_bytes(data[7..9].try_into().unwrap()),
+            millisecond,
         })
     }
 }
