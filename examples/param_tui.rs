@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use log::{debug, error, info, trace, warn, LevelFilter, Log, Metadata, Record};
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -31,6 +31,7 @@ use ratatui::{
 };
 
 use indexmap::IndexMap;
+use serde::Serialize;
 use serialport::SerialPort;
 use uf_crsf::device::{DeviceManager, DeviceManagerConfig, Parameter};
 use uf_crsf::packets::{write_packet_to_buffer, Packet, PacketAddress, ParameterData};
@@ -61,7 +62,10 @@ impl Default for ParamEntry {
 }
 
 #[derive(Parser)]
-#[command(name = "uf-crsf-param-tui", about = "CRSF/ELRS parameter browser TUI")]
+#[command(
+    name = "uf-crsf-param-tui",
+    about = "CRSF/ELRS parameter browser & CLI tool"
+)]
 struct Args {
     #[arg(default_value = "/dev/ttyACM0", help = "Serial port path")]
     port: String,
@@ -79,6 +83,62 @@ struct Args {
         help = "Device discovery timeout (seconds)"
     )]
     discovery_timeout: u64,
+
+    #[command(subcommand)]
+    command: Option<CliCommand>,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum CliCommand {
+    /// Export device parameters as JSON
+    Export {
+        /// Export format: values (current values only), schema (type/range info only), full (both)
+        #[arg(long, default_value = "schema", value_name = "FORMAT")]
+        format: ExportFormat,
+        /// Output file path (default: stdout)
+        #[arg(long, short)]
+        output: Option<String>,
+        /// Get a single parameter by name or numeric ID
+        #[arg(long, value_name = "IDENT")]
+        get: Option<String>,
+        /// JSON schema file from a previous `export --format schema/full`.
+        /// When used with --get, only the requested parameter(s) are queried
+        /// by ID, skipping full enumeration.
+        #[arg(long, value_name = "FILE")]
+        from_schema: Option<String>,
+    },
+    /// Write parameter value(s) by ID or name
+    Set {
+        /// "identifier=value" assignments (repeat for multiple writes).
+        /// Identifier is param ID (number) or name (string).
+        #[arg(long = "set", num_args = 1..)]
+        assignments: Vec<String>,
+        /// Write values from JSON file (same format as `export --format values`).
+        /// Can be combined with --set; --set overrides JSON for same param.
+        #[arg(long)]
+        from_json: Option<String>,
+        /// JSON schema file from a previous `export --format schema/full`.
+        /// When provided, writes are sent directly by param ID without
+        /// needing to enumerate all device parameters first.
+        #[arg(long, value_name = "FILE")]
+        from_schema: Option<String>,
+        /// After writing, read back parameter(s) to verify the change.
+        /// For command parameters, polls until the state returns to Ready.
+        #[arg(long)]
+        check: bool,
+        /// Auto-confirm command parameters that need confirmation
+        /// (sends CONFIRM when state is CONFIRMATION_NEEDED).
+        /// Implies --check.
+        #[arg(long, short = 'y')]
+        confirm: bool,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum ExportFormat {
+    Values,
+    Schema,
+    Full,
 }
 
 /// Logger that writes all log records to a file.
@@ -292,12 +352,7 @@ impl App {
             }
             Some(ParameterData::String { value, .. }) => value.to_string(),
             Some(ParameterData::Info { info }) => info.to_string(),
-            Some(ParameterData::Command { status, .. }) => match status {
-                0 => "Idle".to_string(),
-                1 => "Running".to_string(),
-                2 => "Executing".to_string(),
-                _ => format!("Status {}", status),
-            },
+            Some(ParameterData::Command { status, .. }) => cmd_status_name(*status).to_string(),
             Some(ParameterData::Folder { children }) => format!("[{} items]", children.len()),
             Some(ParameterData::Vtx { data }) => format!("{:02X?}", data.as_slice()),
             None => "?".to_string(),
@@ -410,14 +465,36 @@ impl App {
                 lines.push(Line::from(format!("Info: {}", info)));
                 lines.push(Line::from(format!(
                     "Status: {} | Timeout: {}ms",
-                    status,
+                    cmd_status_name(*status),
                     *timeout as u32 * 100
                 )));
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled(
-                    "Press Enter to execute",
-                    Style::default().fg(Color::Cyan),
-                )));
+                match *status {
+                    CMD_STATUS_READY => {
+                        lines.push(Line::from(Span::styled(
+                            "Press Enter to execute",
+                            Style::default().fg(Color::Cyan),
+                        )));
+                    }
+                    CMD_STATUS_PROGRESS => {
+                        lines.push(Line::from(Span::styled(
+                            "Command running... (p for poll)",
+                            Style::default().fg(Color::Yellow),
+                        )));
+                    }
+                    CMD_STATUS_CONFIRMATION_NEEDED => {
+                        lines.push(Line::from(Span::styled(
+                            format!("{} — Confirm? [y]es / [n]o", info),
+                            Style::default().fg(Color::Yellow),
+                        )));
+                    }
+                    _ => {
+                        lines.push(Line::from(Span::styled(
+                            "Press Enter to execute",
+                            Style::default().fg(Color::Cyan),
+                        )));
+                    }
+                }
             }
             Some(ParameterData::Folder { children }) => {
                 lines.push(Line::from("Type: Folder"));
@@ -642,7 +719,8 @@ fn discover_device(app: &mut App, port: &mut Box<dyn SerialPort>, timeout_secs: 
 
         // Read serial with short polling
         match read_from_serial(port, &mut read_buf) {
-            Ok(bytes_read) if bytes_read > 0 => {
+            Ok(0) => {}
+            Ok(bytes_read) => {
                 let mut parser = app.parser.lock().unwrap();
                 let mut mgr = app.manager.lock().unwrap();
                 for packet in parser.iter_packets(&read_buf[..bytes_read]).flatten() {
@@ -671,6 +749,48 @@ fn discover_device(app: &mut App, port: &mut Box<dyn SerialPort>, timeout_secs: 
             }
         }
 
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Opens the serial port, discovers a device, and loads all parameters.
+///
+/// Returns the open serial port on success so callers can continue using it
+/// (e.g., for writing parameters).
+fn load_all_params(app: &mut App, timeout_secs: u64) -> io::Result<Box<dyn SerialPort>> {
+    let mut port = open_port(app)?;
+    if !discover_device(app, &mut port, timeout_secs) {
+        return Err(io::Error::other("Device discovery failed"));
+    }
+
+    let mut read_buf = [0u8; 512];
+    loop {
+        let time_ms = start_time().elapsed().as_millis() as u32;
+        let bytes_read = read_from_serial(&mut port, &mut read_buf)?;
+
+        let mut mgr = app.manager.lock().unwrap();
+        mgr.update_time(time_ms);
+
+        if bytes_read > 0 {
+            let mut parser = app.parser.lock().unwrap();
+            for pkt in parser.iter_packets(&read_buf[..bytes_read]).flatten() {
+                mgr.handle_packet(&pkt);
+            }
+        }
+
+        let outgoing = mgr.drain_all();
+        let all_loaded = app
+            .selected_device
+            .is_some_and(|addr| mgr.get_device(addr).is_some_and(|d| d.parameters_loaded));
+        drop(mgr);
+
+        for pkt in outgoing {
+            let _ = send_packet_to_serial(&mut port, &pkt);
+        }
+
+        if all_loaded {
+            return Ok(port);
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -832,23 +952,18 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
 
         {
             let mut mgr = app.manager.lock().unwrap();
-            let retry_packets = mgr.process_timeouts();
-            let auto_output = mgr.drain_output();
+            let outgoing = mgr.drain_all();
             drop(mgr);
-            for retry in retry_packets {
-                let _ = send_packet_to_serial(port, &retry);
-            }
-            for pkt in auto_output {
+            for pkt in outgoing {
                 let _ = send_packet_to_serial(port, &pkt);
             }
         }
 
-        // Parameter enumeration: seed the DeviceManager once; it auto-advances
-        // through chunks and parameters via drain_output above.
+        // Parameter enumeration: auto-seeded by DeviceManager on discovery.
+        // Just check for completion to update the UI status.
         if let Some(dev_addr) = app.selected_device {
-            let mut mgr = app.manager.lock().unwrap();
+            let mgr = app.manager.lock().unwrap();
 
-            // Check if the device has finished loading
             let is_loaded = mgr
                 .get_device(dev_addr)
                 .is_some_and(|d| d.parameters_loaded);
@@ -869,19 +984,11 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                     loaded, skipped
                 );
             } else if !is_loaded && !app.param_request_pending {
-                // Seed the first (or next reread) request if the manager has
-                // nothing in flight. request_all_parameters is a no-op if
-                // already loaded or already has a pending request queued.
-                if let Some(pkt) = mgr.request_all_parameters(dev_addr) {
-                    drop(mgr);
-                    let _ = send_packet_to_serial(port, &pkt);
-                    app.param_request_pending = true;
-                    let (loaded, skipped) = app.param_progress();
-                    app.status_message = format!(
-                        "Requesting parameters... ({} loaded, {} skipped)",
-                        loaded, skipped
-                    );
-                }
+                let (loaded, skipped) = app.param_progress();
+                app.status_message = format!(
+                    "Requesting parameters... ({} loaded, {} skipped)",
+                    loaded, skipped
+                );
             }
         }
 
@@ -897,7 +1004,11 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                             app.confirming_command = false;
                             execute_command(app, port);
                         }
-                        KeyCode::Char('n') | KeyCode::Esc => {
+                        KeyCode::Char('n') => {
+                            app.confirming_command = false;
+                            cancel_command(app, port);
+                        }
+                        KeyCode::Esc => {
                             app.confirming_command = false;
                         }
                         _ => {}
@@ -913,6 +1024,57 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                             app.edit_buffer.pop();
                         }
                         KeyCode::Char(c) => app.edit_buffer.push(c),
+                        KeyCode::Up | KeyCode::Down => {
+                            // For TextSelection parameters, cycle through options
+                            let params = app.get_current_parameters();
+                            let selected = app.list_state.selected().unwrap_or(0);
+                            if selected < params.len() {
+                                let (_id, param) = &params[selected];
+                                if let Some(ParameterData::TextSelection {
+                                    options,
+                                    value,
+                                    min,
+                                    max,
+                                    ..
+                                }) = &param.data
+                                {
+                                    let opts: Vec<&str> = options.split(';').collect();
+                                    // Determine current index from the edit buffer
+                                    let current_idx = if app.edit_buffer.is_empty() {
+                                        *value
+                                    } else if let Ok(idx) = app.edit_buffer.parse::<u8>() {
+                                        idx
+                                    } else {
+                                        opts.iter()
+                                            .position(|o| o.eq_ignore_ascii_case(&app.edit_buffer))
+                                            .unwrap_or(*value as usize)
+                                            as u8
+                                    };
+                                    let new_idx = match key.code {
+                                        KeyCode::Up => {
+                                            if current_idx > *min {
+                                                current_idx - 1
+                                            } else {
+                                                *max
+                                            }
+                                        }
+                                        KeyCode::Down => {
+                                            if current_idx < *max {
+                                                current_idx + 1
+                                            } else {
+                                                *min
+                                            }
+                                        }
+                                        _ => unreachable!(),
+                                    };
+                                    app.edit_buffer = opts
+                                        .get(new_idx as usize)
+                                        .copied()
+                                        .unwrap_or("?")
+                                        .to_string();
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 } else {
@@ -938,6 +1100,9 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                         }
                         KeyCode::Right | KeyCode::Char(' ') => handle_select(app),
                         KeyCode::Left => app.go_back(),
+                        KeyCode::Char('p') => {
+                            poll_command(app, port);
+                        }
                         KeyCode::Char('r') => {
                             if let Some(dev_addr) = app.selected_device {
                                 app.params_loaded = false;
@@ -982,16 +1147,141 @@ fn handle_select(app: &mut App) {
         Some(ParameterData::Folder { .. }) => {
             app.enter_folder(*param_id, param.name.to_string());
         }
-        Some(ParameterData::Command { .. }) => {
-            app.confirming_command = true;
+        Some(ParameterData::Command { status, .. }) => match *status {
+            CMD_STATUS_READY => {
+                app.confirming_command = true;
+            }
+            CMD_STATUS_CONFIRMATION_NEEDED => {
+                app.confirming_command = true;
+            }
+            CMD_STATUS_PROGRESS => {
+                // Already running — do nothing on select, use 'p' to poll
+            }
+            _ => {
+                app.confirming_command = true;
+            }
+        },
+        Some(ParameterData::TextSelection { options, value, .. }) => {
+            app.editing = true;
+            // Pre-fill edit buffer with the current option name so
+            // up/down arrows can cycle from a known starting point.
+            let opts: Vec<&str> = options.split(';').collect();
+            app.edit_buffer = opts
+                .get(*value as usize)
+                .copied()
+                .unwrap_or("?")
+                .to_string();
         }
-        Some(ParameterData::Float { .. })
-        | Some(ParameterData::TextSelection { .. })
-        | Some(ParameterData::String { .. }) => {
+        Some(ParameterData::Float { .. }) | Some(ParameterData::String { .. }) => {
             app.editing = true;
             app.edit_buffer.clear();
         }
         _ => {}
+    }
+}
+
+/// Command status codes (CRSF spec 0x2B command payload).
+const CMD_STATUS_READY: u8 = 0;
+const CMD_STATUS_START: u8 = 1;
+const CMD_STATUS_PROGRESS: u8 = 2;
+const CMD_STATUS_CONFIRMATION_NEEDED: u8 = 3;
+const CMD_STATUS_CONFIRM: u8 = 4;
+const CMD_STATUS_CANCEL: u8 = 5;
+const CMD_STATUS_POLL: u8 = 6;
+
+fn cmd_status_name(status: u8) -> &'static str {
+    match status {
+        CMD_STATUS_READY => "Ready",
+        CMD_STATUS_START => "Start",
+        CMD_STATUS_PROGRESS => "In Progress",
+        CMD_STATUS_CONFIRMATION_NEEDED => "Confirmation Needed",
+        CMD_STATUS_CONFIRM => "Confirmed",
+        CMD_STATUS_CANCEL => "Cancelled",
+        CMD_STATUS_POLL => "Poll",
+        _ => "Unknown",
+    }
+}
+
+/// Validates user input against a parameter's schema and returns the
+/// wire-format bytes for a ParameterWrite packet.
+///
+/// Returns `Ok(data)` if the input is valid, or `Err(message)` with a
+/// human-readable error string.
+fn resolve_write_data(param: &Parameter, input: &str) -> Result<Vec<u8>, String> {
+    match &param.data {
+        Some(ParameterData::Float {
+            min,
+            max,
+            decimal_point,
+            ..
+        }) => {
+            let min = *min;
+            let max = *max;
+            let decimal_point = *decimal_point;
+            let val: f64 = input
+                .parse()
+                .map_err(|_| format!("Invalid number: {}", input))?;
+            let divisor = 10_i32.pow(decimal_point as u32) as f64;
+            let int_val = (val * divisor) as i32;
+            if int_val < min || int_val > max {
+                return Err(format!(
+                    "Value {} out of range [{}, {}]",
+                    val,
+                    min as f64 / divisor,
+                    max as f64 / divisor
+                ));
+            }
+            Ok(int_val.to_le_bytes().to_vec())
+        }
+        Some(ParameterData::TextSelection {
+            options, min, max, ..
+        }) => {
+            let min = *min;
+            let max = *max;
+            match input.parse::<u8>() {
+                Ok(idx) if idx >= min && idx <= max => Ok(vec![idx]),
+                Ok(idx) => Err(format!("Index {} out of range [{}, {}]", idx, min, max)),
+                Err(_) => {
+                    let opts: Vec<&str> = options.split(';').collect();
+                    if let Some(pos) = opts.iter().position(|o| o.eq_ignore_ascii_case(input)) {
+                        let pos_u8 = pos as u8;
+                        if pos_u8 >= min && pos_u8 <= max {
+                            Ok(vec![pos_u8])
+                        } else {
+                            Err(format!("Option '{}' out of range", input))
+                        }
+                    } else {
+                        Err(format!(
+                            "Invalid option: '{}'. Use index 0-{} or option name",
+                            input, max
+                        ))
+                    }
+                }
+            }
+        }
+        Some(ParameterData::String { .. }) => Ok(input.as_bytes().to_vec()),
+        Some(ParameterData::Command { status, .. }) => {
+            let current = *status;
+            match input.to_lowercase().as_str() {
+                "start" => {
+                    if current != CMD_STATUS_READY {
+                        return Err(format!(
+                            "Command is not ready (current: {})",
+                            cmd_status_name(current)
+                        ));
+                    }
+                    Ok(vec![CMD_STATUS_START])
+                }
+                "confirm" | "yes" | "y" => Ok(vec![CMD_STATUS_CONFIRM]),
+                "cancel" | "no" | "n" => Ok(vec![CMD_STATUS_CANCEL]),
+                "poll" => Ok(vec![CMD_STATUS_POLL]),
+                other => Err(format!(
+                    "Invalid command action: '{}'. Use start, confirm, cancel, or poll",
+                    other
+                )),
+            }
+        }
+        _ => Err(format!("Parameter '{}' is not writable", param.name)),
     }
 }
 
@@ -1005,111 +1295,48 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
     if selected >= params.len() {
         return;
     }
-    let (param_id, param) = &params[selected];
+    let (_, param) = &params[selected];
     let Some(dev_addr) = app.selected_device else {
         return;
     };
 
-    let write_data: Option<Vec<u8>> = match &param.data {
-        Some(ParameterData::Float {
-            min,
-            max,
-            decimal_point,
-            ..
-        }) => {
-            let min = *min;
-            let max = *max;
-            let decimal_point = *decimal_point;
-            let parsed: Result<f64, _> = input.parse();
-            match parsed {
-                Ok(val) => {
-                    let divisor = 10_i32.pow(decimal_point as u32) as f64;
-                    let int_val = (val * divisor) as i32;
-                    if int_val < min || int_val > max {
-                        app.status_message = format!(
-                            "Value {} out of range [{}, {}]",
-                            val,
-                            min as f64 / divisor,
-                            max as f64 / divisor
-                        );
-                        return;
-                    }
-                    Some(int_val.to_le_bytes().to_vec())
-                }
-                Err(_) => {
-                    app.status_message = format!("Invalid number: {}", input);
-                    return;
-                }
-            }
+    let write_data = match resolve_write_data(param, &input) {
+        Ok(data) => data,
+        Err(msg) => {
+            app.status_message = msg;
+            return;
         }
-        Some(ParameterData::TextSelection {
-            options, min, max, ..
-        }) => {
-            let min = *min;
-            let max = *max;
-            match input.parse::<u8>() {
-                Ok(idx) if idx >= min && idx <= max => Some(vec![idx]),
-                Ok(idx) => {
-                    app.status_message = format!("Index {} out of range [{}, {}]", idx, min, max);
-                    return;
-                }
-                Err(_) => {
-                    let opts: Vec<&str> = options.split(';').collect();
-                    if let Some(pos) = opts.iter().position(|o| o.eq_ignore_ascii_case(&input)) {
-                        let pos_u8 = pos as u8;
-                        if pos_u8 >= min && pos_u8 <= max {
-                            Some(vec![pos_u8])
-                        } else {
-                            app.status_message = format!("Option '{}' out of range", input);
-                            return;
-                        }
-                    } else {
-                        app.status_message = format!(
-                            "Invalid option: '{}'. Use index 0-{} or option name",
-                            input, max
-                        );
-                        return;
-                    }
-                }
-            }
-        }
-        Some(ParameterData::String { .. }) => Some(input.as_bytes().to_vec()),
-        _ => None,
     };
 
-    if let Some(data) = write_data {
-        let pid = *param_id;
-        info!(
-            "Writing parameter {} ({} bytes) to device 0x{:02X}",
-            pid,
-            data.len(),
-            dev_addr as u8
-        );
-        if let Some(pkt) = build_param_write_packet(dev_addr, pid, &data) {
-            match send_packet_to_serial(port, &pkt) {
-                Ok(()) => {
-                    app.status_message =
-                        format!("Sent write for param {} ({} bytes)", pid, data.len());
-                    // Remove the stale cached value so the reread response isn't
-                    // rejected as a "stale chunk for already-loaded param".
-                    let mut mgr = app.manager.lock().unwrap();
-                    if let Some(device) = mgr.get_device_mut(dev_addr) {
-                        device.parameters.remove(&pid);
-                        device.parameters_loaded = false;
-                    }
-                    if let Some(reread_pkt) = mgr.request_parameter(dev_addr, pid, 0) {
-                        drop(mgr);
-                        let _ = send_packet_to_serial(port, &reread_pkt);
-                        app.param_request_pending = true;
-                        if let Some(entry) = app.param_entries.get_mut(&pid) {
-                            entry.pending = true;
-                            entry.needs_reread = true;
-                        }
+    let pid = param.id;
+    info!(
+        "Writing parameter {} ({} bytes) to device 0x{:02X}",
+        pid,
+        write_data.len(),
+        dev_addr as u8
+    );
+    if let Some(pkt) = build_param_write_packet(dev_addr, pid, &write_data) {
+        match send_packet_to_serial(port, &pkt) {
+            Ok(()) => {
+                app.status_message =
+                    format!("Sent write for param {} ({} bytes)", pid, write_data.len());
+                let mut mgr = app.manager.lock().unwrap();
+                if let Some(device) = mgr.get_device_mut(dev_addr) {
+                    device.parameters.remove(&pid);
+                    device.parameters_loaded = false;
+                }
+                if let Some(reread_pkt) = mgr.request_parameter(dev_addr, pid, 0) {
+                    drop(mgr);
+                    let _ = send_packet_to_serial(port, &reread_pkt);
+                    app.param_request_pending = true;
+                    if let Some(entry) = app.param_entries.get_mut(&pid) {
+                        entry.pending = true;
+                        entry.needs_reread = true;
                     }
                 }
-                Err(e) => {
-                    app.status_message = format!("Write error: {}", e);
-                }
+            }
+            Err(e) => {
+                app.status_message = format!("Write error: {}", e);
             }
         }
     }
@@ -1125,19 +1352,23 @@ fn execute_command(app: &mut App, port: &mut Box<dyn SerialPort>) {
     let Some(dev_addr) = app.selected_device else {
         return;
     };
-    if !matches!(&param.data, Some(ParameterData::Command { .. })) {
+    let Some(ParameterData::Command { status, .. }) = &param.data else {
         return;
-    }
+    };
     let pid = *param_id;
+    let action = if *status == CMD_STATUS_CONFIRMATION_NEEDED {
+        CMD_STATUS_CONFIRM
+    } else {
+        CMD_STATUS_START
+    };
     info!(
-        "Executing command {} to device 0x{:02X}",
-        pid,
-        dev_addr as u8
+        "Executing command {} (action={}) to device 0x{:02X}",
+        pid, action, dev_addr as u8
     );
-    if let Some(pkt) = build_param_write_packet(dev_addr, pid, &[0]) {
+    if let Some(pkt) = build_param_write_packet(dev_addr, pid, &[action]) {
         match send_packet_to_serial(port, &pkt) {
             Ok(()) => {
-                app.status_message = format!("Command {} sent", pid);
+                app.status_message = format!("Command {} sent ({})", pid, cmd_status_name(action));
                 let mut mgr = app.manager.lock().unwrap();
                 if let Some(device) = mgr.get_device_mut(dev_addr) {
                     device.parameters.remove(&pid);
@@ -1155,6 +1386,83 @@ fn execute_command(app: &mut App, port: &mut Box<dyn SerialPort>) {
             }
             Err(e) => {
                 app.status_message = format!("Command error: {}", e);
+            }
+        }
+    }
+}
+
+/// Cancels a command that is in CONFIRMATION_NEEDED state.
+fn cancel_command(app: &mut App, port: &mut Box<dyn SerialPort>) {
+    let params = app.get_current_parameters();
+    let selected = app.list_state.selected().unwrap_or(0);
+    if selected >= params.len() {
+        return;
+    }
+    let (param_id, param) = &params[selected];
+    let Some(dev_addr) = app.selected_device else {
+        return;
+    };
+    let Some(ParameterData::Command { .. }) = &param.data else {
+        return;
+    };
+    let pid = *param_id;
+    info!("Cancelling command {} to device 0x{:02X}", pid, dev_addr as u8);
+    if let Some(pkt) = build_param_write_packet(dev_addr, pid, &[CMD_STATUS_CANCEL]) {
+        match send_packet_to_serial(port, &pkt) {
+            Ok(()) => {
+                app.status_message = format!("Command {} cancelled", pid);
+                let mut mgr = app.manager.lock().unwrap();
+                if let Some(device) = mgr.get_device_mut(dev_addr) {
+                    device.parameters.remove(&pid);
+                    device.parameters_loaded = false;
+                }
+                if let Some(reread_pkt) = mgr.request_parameter(dev_addr, pid, 0) {
+                    drop(mgr);
+                    let _ = send_packet_to_serial(port, &reread_pkt);
+                    app.param_request_pending = true;
+                    if let Some(entry) = app.param_entries.get_mut(&pid) {
+                        entry.pending = true;
+                        entry.needs_reread = true;
+                    }
+                }
+            }
+            Err(e) => {
+                app.status_message = format!("Cancel error: {}", e);
+            }
+        }
+    }
+}
+
+/// Sends a POLL for a command parameter to get its latest status.
+fn poll_command(app: &mut App, port: &mut Box<dyn SerialPort>) {
+    let params = app.get_current_parameters();
+    let selected = app.list_state.selected().unwrap_or(0);
+    if selected >= params.len() {
+        return;
+    }
+    let (param_id, param) = &params[selected];
+    let Some(dev_addr) = app.selected_device else {
+        return;
+    };
+    let Some(ParameterData::Command { .. }) = &param.data else {
+        return;
+    };
+    let pid = *param_id;
+    if let Some(pkt) = build_param_write_packet(dev_addr, pid, &[CMD_STATUS_POLL]) {
+        if send_packet_to_serial(port, &pkt).is_ok() {
+            let mut mgr = app.manager.lock().unwrap();
+            if let Some(device) = mgr.get_device_mut(dev_addr) {
+                device.parameters.remove(&pid);
+                device.parameters_loaded = false;
+            }
+            if let Some(reread_pkt) = mgr.request_parameter(dev_addr, pid, 0) {
+                drop(mgr);
+                let _ = send_packet_to_serial(port, &reread_pkt);
+                app.param_request_pending = true;
+                if let Some(entry) = app.param_entries.get_mut(&pid) {
+                    entry.pending = true;
+                    entry.needs_reread = true;
+                }
             }
         }
     }
@@ -1270,13 +1578,39 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(detail, area);
 
     if app.confirming_command {
-        let confirm = Paragraph::new("Execute this command? [y]es / [n]o")
+        let (text, title) = if selected < params.len() {
+            if let Some(ParameterData::Command {
+                status,
+                info,
+                ..
+            }) = &params[selected].1.data
+            {
+                if *status == CMD_STATUS_CONFIRMATION_NEEDED {
+                    (
+                        format!("{} — Confirm? [y]es / [n]o", info),
+                        " Confirm Required (Esc to dismiss) ",
+                    )
+                } else {
+                    (
+                        format!("Execute '{}'? [y]es / [n]o", params[selected].1.name),
+                        " Execute Command (Esc to cancel) ",
+                    )
+                }
+            } else {
+                (
+                    "Execute this command? [y]es / [n]o".to_string(),
+                    " Confirm (Esc to cancel) ",
+                )
+            }
+        } else {
+            (
+                "Execute this command? [y]es / [n]o".to_string(),
+                " Confirm (Esc to cancel) ",
+            )
+        };
+        let confirm = Paragraph::new(text)
             .style(Style::default().fg(Color::Yellow))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Confirm (Esc to cancel) "),
-            );
+            .block(Block::default().borders(Borders::ALL).title(title));
         f.render_widget(
             confirm,
             Rect {
@@ -1287,13 +1621,19 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
             },
         );
     } else if app.editing {
+        let is_text_selection = selected < params.len()
+            && matches!(
+                params[selected].1.data,
+                Some(ParameterData::TextSelection { .. })
+            );
+        let edit_title = if is_text_selection {
+            " Select option (\u{2191}\u{2193} cycle, Enter confirm, Esc cancel) "
+        } else {
+            " Enter value (Esc to cancel) "
+        };
         let input = Paragraph::new(format!("> {}", app.edit_buffer))
             .style(Style::default().fg(Color::Yellow))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Enter value (Esc to cancel) "),
-            );
+            .block(Block::default().borders(Borders::ALL).title(edit_title));
         f.render_widget(
             input,
             Rect {
@@ -1350,7 +1690,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ),
         Span::raw(" | "),
         Span::styled(
-            "q/Ctrl-C:Quit  \u{2191}\u{2193}:Nav  Enter:Edit  Backspace:Back  r:Refresh",
+            "q/Ctrl-C:Quit  \u{2191}\u{2193}:Nav  Enter:Edit  Backspace:Back  r:Refresh  p:Poll",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -1359,23 +1699,1272 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(status, area);
 }
 
+// -----------------------------------------------------------------------
+// JSON export types & CLI helpers
+// -----------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct ExportRoot {
+    device: ExportDevice,
+    parameters: Vec<ExportNode>,
+}
+
+#[derive(Serialize)]
+struct ExportDevice {
+    name: String,
+    address: String,
+    serial_number: u32,
+    hardware_id: u32,
+    firmware_id: u32,
+    parameter_version: u8,
+    parameters_total: u8,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum ExportNode {
+    #[serde(rename = "folder")]
+    Folder {
+        id: u8,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hidden: Option<bool>,
+        children: Vec<ExportNode>,
+    },
+    #[serde(rename = "float")]
+    Float {
+        id: u8,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hidden: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        min: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        default: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        step: Option<f64>,
+    },
+    #[serde(rename = "text_selection")]
+    TextSelection {
+        id: u8,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hidden: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value_index: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        options: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        min: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        default: Option<u8>,
+    },
+    #[serde(rename = "string")]
+    String_ {
+        id: u8,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hidden: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_length: Option<u8>,
+    },
+    #[serde(rename = "info")]
+    Info {
+        id: u8,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hidden: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+    },
+    #[serde(rename = "command")]
+    Command {
+        id: u8,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hidden: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        status: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        status_code: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        info: Option<String>,
+    },
+    #[serde(rename = "vtx")]
+    Vtx {
+        id: u8,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hidden: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+    },
+}
+
+fn build_export_tree(device: &uf_crsf::device::Device, fmt: &ExportFormat) -> Vec<ExportNode> {
+    build_folder_children(device, 0, fmt)
+}
+
+fn build_folder_children(
+    device: &uf_crsf::device::Device,
+    folder_id: u8,
+    fmt: &ExportFormat,
+) -> Vec<ExportNode> {
+    let Some(folder) = device.get_parameter(folder_id) else {
+        return Vec::new();
+    };
+    let Some(child_ids) = folder.folder_children() else {
+        return Vec::new();
+    };
+
+    let mut nodes: Vec<ExportNode> = Vec::new();
+    for &cid in child_ids.iter() {
+        let Some(param) = device.get_parameter(cid) else {
+            continue;
+        };
+        nodes.push(param_to_export_node(param, device, fmt));
+    }
+    nodes
+}
+
+fn param_to_export_node(
+    param: &Parameter,
+    device: &uf_crsf::device::Device,
+    fmt: &ExportFormat,
+) -> ExportNode {
+    let include_values = fmt == &ExportFormat::Values || fmt == &ExportFormat::Full;
+    let include_schema = fmt == &ExportFormat::Schema || fmt == &ExportFormat::Full;
+    let hidden = if param.hidden { Some(true) } else { None };
+
+    match &param.data {
+        Some(ParameterData::Folder { .. }) => ExportNode::Folder {
+            id: param.id,
+            name: param.name.to_string(),
+            hidden,
+            children: build_folder_children(device, param.id, fmt),
+        },
+        Some(ParameterData::Float {
+            value,
+            min,
+            max,
+            default,
+            step_size,
+            decimal_point,
+            unit,
+            ..
+        }) => {
+            let d = 10_i32.pow(*decimal_point as u32) as f64;
+            ExportNode::Float {
+                id: param.id,
+                name: param.name.to_string(),
+                hidden,
+                value: if include_values {
+                    Some(*value as f64 / d)
+                } else {
+                    None
+                },
+                unit: if include_values || include_schema {
+                    Some(unit.to_string())
+                } else {
+                    None
+                },
+                min: if include_schema {
+                    Some(*min as f64 / d)
+                } else {
+                    None
+                },
+                max: if include_schema {
+                    Some(*max as f64 / d)
+                } else {
+                    None
+                },
+                default: if include_schema {
+                    Some(*default as f64 / d)
+                } else {
+                    None
+                },
+                step: if include_schema {
+                    Some(*step_size as f64 / d)
+                } else {
+                    None
+                },
+            }
+        }
+        Some(ParameterData::TextSelection {
+            options,
+            value,
+            min,
+            max,
+            default,
+            ..
+        }) => {
+            let opts: Vec<&str> = options.split(';').collect();
+            let value_name = opts.get(*value as usize).map(|s| s.to_string());
+            ExportNode::TextSelection {
+                id: param.id,
+                name: param.name.to_string(),
+                hidden,
+                value: if include_values { value_name } else { None },
+                value_index: if include_values { Some(*value) } else { None },
+                options: if include_schema {
+                    Some(opts.into_iter().map(|s| s.to_string()).collect())
+                } else {
+                    None
+                },
+                min: if include_schema { Some(*min) } else { None },
+                max: if include_schema { Some(*max) } else { None },
+                default: if include_schema { Some(*default) } else { None },
+            }
+        }
+        Some(ParameterData::String { value, max_length }) => ExportNode::String_ {
+            id: param.id,
+            name: param.name.to_string(),
+            hidden,
+            value: if include_values {
+                Some(value.to_string())
+            } else {
+                None
+            },
+            max_length: if include_schema { Some(*max_length) } else { None },
+        },
+        Some(ParameterData::Info { info }) => ExportNode::Info {
+            id: param.id,
+            name: param.name.to_string(),
+            hidden,
+            value: if include_values {
+                Some(info.to_string())
+            } else {
+                None
+            },
+        },
+        Some(ParameterData::Command {
+            status, timeout, info, ..
+        }) => ExportNode::Command {
+            id: param.id,
+            name: param.name.to_string(),
+            hidden,
+            status: if include_values {
+                Some(cmd_status_name(*status).to_string())
+            } else {
+                None
+            },
+            status_code: if include_values { Some(*status) } else { None },
+            timeout_ms: if include_schema {
+                Some(*timeout as u32 * 100)
+            } else {
+                None
+            },
+            info: if include_schema || include_values {
+                Some(info.to_string())
+            } else {
+                None
+            },
+        },
+        Some(ParameterData::Vtx { data }) => ExportNode::Vtx {
+            id: param.id,
+            name: param.name.to_string(),
+            hidden,
+            value: if include_values {
+                Some(format!("{:02X?}", data.as_slice()))
+            } else {
+                None
+            },
+        },
+        None => ExportNode::Info {
+            id: param.id,
+            name: param.name.to_string(),
+            hidden,
+            value: if include_values {
+                Some("(no data)".to_string())
+            } else {
+                None
+            },
+        },
+    }
+}
+
+/// Flattens the nested export tree back to (id, name) pairs for name lookup.
+fn flatten_export_nodes(nodes: &[serde_json::Value]) -> Vec<(u8, String)> {
+    let mut result = Vec::new();
+    for node in nodes {
+        if let Some(id) = node.get("id").and_then(|v| v.as_u64()).map(|v| v as u8) {
+            if let Some(name) = node.get("name").and_then(|v| v.as_str()) {
+                result.push((id, name.to_string()));
+            }
+        }
+        if let Some(children) = node.get("children").and_then(|v| v.as_array()) {
+            result.extend(flatten_export_nodes(children));
+        }
+    }
+    result
+}
+
+fn parse_assignment(s: &str) -> Option<(String, Option<String>)> {
+    if let Some(pos) = s.find('=') {
+        Some((s[..pos].to_string(), Some(s[pos + 1..].to_string())))
+    } else {
+        Some((s.to_string(), None))
+    }
+}
+
+/// Resolves a parameter identifier (numeric ID or name) to a parameter ID.
+fn resolve_param_id(app: &App, ident: &str) -> Option<u8> {
+    if let Ok(id) = ident.parse::<u8>() {
+        let mgr = app.manager.lock().unwrap();
+        if let Some(dev_addr) = app.selected_device {
+            if mgr
+                .get_device(dev_addr)
+                .and_then(|d| d.get_parameter(id))
+                .is_some()
+            {
+                return Some(id);
+            }
+        }
+    }
+    let mgr = app.manager.lock().unwrap();
+    if let Some(dev_addr) = app.selected_device {
+        if let Some(device) = mgr.get_device(dev_addr) {
+            for param in device.iter_parameters() {
+                if param.name.eq_ignore_ascii_case(ident) {
+                    return Some(param.id);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn run_export(
+    app: &mut App,
+    format: &ExportFormat,
+    output: Option<&str>,
+    get: Option<&str>,
+    from_schema: Option<&str>,
+    timeout: u64,
+) -> io::Result<()> {
+    if let Some(schema_path) = from_schema {
+        return run_export_with_schema(app, format, output, get, schema_path, timeout);
+    }
+
+    eprintln!("Loading parameters...");
+    let _port = load_all_params(app, timeout)?;
+
+    let mgr = app.manager.lock().unwrap();
+    let dev_addr = app.selected_device.unwrap();
+    let device = mgr.get_device(dev_addr).unwrap();
+
+    if let Some(ident) = get {
+        let param_id = if let Ok(id) = ident.parse::<u8>() {
+            if device.get_parameter(id).is_some() {
+                Some(id)
+            } else {
+                None
+            }
+        } else {
+            device
+                .iter_parameters()
+                .find(|p| p.name.eq_ignore_ascii_case(ident))
+                .map(|p| p.id)
+        };
+        let Some(param_id) = param_id else {
+            drop(mgr);
+            eprintln!("No parameter matching '{}'", ident);
+            std::process::exit(1);
+        };
+        let Some(param) = device.get_parameter(param_id) else {
+            drop(mgr);
+            eprintln!("Parameter {} not loaded", param_id);
+            std::process::exit(1);
+        };
+        let node = param_to_export_node(param, device, format);
+        drop(mgr);
+
+        let json = serde_json::to_string_pretty(&node)
+            .map_err(|e| io::Error::other(format!("JSON serialization failed: {}", e)))?;
+
+        match output {
+            Some(path) => {
+                std::fs::write(path, &json)?;
+                eprintln!("Exported to {}", path);
+            }
+            None => println!("{}", json),
+        }
+        return Ok(());
+    }
+
+    let export_device = ExportDevice {
+        name: device.name.to_string(),
+        address: format!("0x{:02X}", dev_addr as u8),
+        serial_number: device.serial_number,
+        hardware_id: device.hardware_id,
+        firmware_id: device.firmware_id,
+        parameter_version: device.parameter_version,
+        parameters_total: device.parameters_total,
+    };
+
+    let nodes = build_export_tree(device, format);
+
+    let root = ExportRoot {
+        device: export_device,
+        parameters: nodes,
+    };
+
+    drop(mgr);
+
+    let json = serde_json::to_string_pretty(&root)
+        .map_err(|e| io::Error::other(format!("JSON serialization failed: {}", e)))?;
+
+    match output {
+        Some(path) => {
+            std::fs::write(path, &json)?;
+            eprintln!("Exported to {}", path);
+        }
+        None => println!("{}", json),
+    }
+
+    Ok(())
+}
+
+fn run_set(
+    app: &mut App,
+    assignments: &[String],
+    from_json: Option<&str>,
+    from_schema: Option<&str>,
+    timeout: u64,
+    check: bool,
+    confirm: bool,
+) -> io::Result<()> {
+    let check = check || confirm;
+    if let Some(schema_path) = from_schema {
+        return run_set_with_schema(app, assignments, from_json, schema_path, timeout, check, confirm);
+    }
+
+    eprintln!("Loading parameters...");
+    let mut port = load_all_params(app, timeout)?;
+
+    let dev_addr = app.selected_device.unwrap();
+
+    let mut writes: Vec<(u8, Vec<u8>)> = Vec::new();
+
+    if let Some(json_path) = from_json {
+        let json_data = std::fs::read_to_string(json_path)?;
+        let root: serde_json::Value = serde_json::from_str(&json_data)
+            .map_err(|e| io::Error::other(format!("Invalid JSON: {}", e)))?;
+        if let Some(params) = root.get("parameters").and_then(|p| p.as_array()) {
+            let flat = flatten_export_nodes(params);
+            for (id, _name) in flat {
+                if let Some(val_str) = find_value_in_tree(params, id) {
+                    let mgr = app.manager.lock().unwrap();
+                    if let Some(device) = mgr.get_device(dev_addr) {
+                        if let Some(param) = device.get_parameter(id) {
+                            match resolve_write_data(param, &val_str) {
+                                Ok(data) => writes.push((id, data)),
+                                Err(e) => eprintln!("Skipping param {}: {}", id, e),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for assignment in assignments {
+        let Some((ident, value)) = parse_assignment(assignment) else {
+            continue;
+        };
+        let Some(id) = resolve_param_id(app, &ident) else {
+            eprintln!("Unknown parameter: '{}'", ident);
+            continue;
+        };
+        let mgr = app.manager.lock().unwrap();
+        if let Some(device) = mgr.get_device(dev_addr) {
+            if let Some(param) = device.get_parameter(id) {
+                if let Some(ref val) = value {
+                    match resolve_write_data(param, val) {
+                        Ok(data) => writes.push((id, data)),
+                        Err(e) => eprintln!("Invalid value for param {}: {}", id, e),
+                    }
+                } else {
+                    match &param.data {
+                        Some(ParameterData::Command { status, .. }) => {
+                            let action = if *status == CMD_STATUS_CONFIRMATION_NEEDED {
+                                CMD_STATUS_CONFIRM
+                            } else {
+                                CMD_STATUS_START
+                            };
+                            writes.push((id, vec![action]));
+                        }
+                        _ => eprintln!(
+                            "Parameter '{}' requires a value. Use {}=value",
+                            ident, ident
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
+    if writes.is_empty() {
+        eprintln!("No valid writes to perform");
+        return Ok(());
+    }
+
+    for (pid, data) in &writes {
+        info!(
+            "Writing param {} ({} bytes) to device 0x{:02X}",
+            pid,
+            data.len(),
+            dev_addr as u8
+        );
+        if let Some(pkt) = build_param_write_packet(dev_addr, *pid, data) {
+            send_packet_to_serial(&mut port, &pkt)?;
+            eprintln!("Sent write for param {}", pid);
+        }
+    }
+
+    if check {
+        verify_writes(app, &mut port, &writes, dev_addr, confirm)?;
+    }
+
+    Ok(())
+}
+
+fn prompt_yes_no(label: &str) -> io::Result<bool> {
+    use std::io::Write;
+    loop {
+        eprint!("{} [y/n]: ", label);
+        io::stderr().flush()?;
+        let mut line = String::new();
+        io::stdin().read_line(&mut line)?;
+        match line.trim().to_lowercase().as_str() {
+            "y" | "yes" => return Ok(true),
+            "n" | "no" => return Ok(false),
+            _ => eprintln!("Please enter y or n"),
+        }
+    }
+}
+
+fn verify_writes(
+    app: &mut App,
+    port: &mut Box<dyn SerialPort>,
+    writes: &[(u8, Vec<u8>)],
+    dev_addr: PacketAddress,
+    confirm: bool,
+) -> io::Result<()> {
+    let ids: Vec<u8> = writes.iter().map(|(id, _)| *id).collect();
+    let start = Instant::now();
+    let max_duration = Duration::from_secs(30);
+    let mut read_buf = [0u8; 512];
+    let mut verified: Vec<u8> = Vec::new();
+
+    // Request reread for each written parameter
+    {
+        let mut mgr = app.manager.lock().unwrap();
+        for &pid in &ids {
+            if let Some(device) = mgr.get_device_mut(dev_addr) {
+                device.parameters.remove(&pid);
+            }
+            if let Some(pkt) = mgr.request_parameter(dev_addr, pid, 0) {
+                send_packet_to_serial(port, &pkt)?;
+            }
+        }
+    }
+
+    eprint!("Verifying");
+    while verified.len() < ids.len() && start.elapsed() < max_duration {
+        eprint!(".");
+        let time_ms = start_time().elapsed().as_millis() as u32;
+        {
+            let mut mgr = app.manager.lock().unwrap();
+            mgr.update_time(time_ms);
+        }
+
+        {
+            let mut mgr = app.manager.lock().unwrap();
+            let outgoing = mgr.drain_all();
+            drop(mgr);
+            for pkt in outgoing {
+                send_packet_to_serial(port, &pkt)?;
+            }
+        }
+
+        let bytes_read = read_from_serial(port, &mut read_buf)?;
+        if bytes_read > 0 {
+            let mut parser = app.parser.lock().unwrap();
+            let packets: Vec<_> = parser.iter_packets(&read_buf[..bytes_read]).collect();
+            drop(parser);
+
+            for packet_result in packets {
+                if let Ok(ref packet) = packet_result {
+                    let param_id = match packet {
+                        Packet::ParameterSettingsEntry(entry)
+                            if ids.contains(&entry.parameter_number) =>
+                        {
+                            Some(entry.parameter_number)
+                        }
+                        _ => None,
+                    };
+
+                    {
+                        let mut mgr = app.manager.lock().unwrap();
+                        mgr.handle_packet(packet);
+                    }
+
+                    if let Some(pid) = param_id {
+                        if verified.contains(&pid) {
+                            continue;
+                        }
+
+                        let status = {
+                            let mgr = app.manager.lock().unwrap();
+                            mgr.get_device(dev_addr)
+                                .and_then(|d| d.get_parameter(pid))
+                                .and_then(|p| match &p.data {
+                                    Some(ParameterData::Command { status, .. }) => Some(*status),
+                                    _ => None,
+                                })
+                        };
+
+                        match status {
+                            Some(CMD_STATUS_READY) => {
+                                verified.push(pid);
+                                eprintln!("\n  param {} = Ready", pid);
+                            }
+                            Some(CMD_STATUS_PROGRESS) => {
+                                let mut mgr = app.manager.lock().unwrap();
+                                if let Some(device) = mgr.get_device_mut(dev_addr) {
+                                    device.parameters.remove(&pid);
+                                }
+                                if let Some(pkt) = mgr.request_parameter(dev_addr, pid, 0) {
+                                    send_packet_to_serial(port, &pkt)?;
+                                }
+                            }
+                            Some(CMD_STATUS_CONFIRMATION_NEEDED) => {
+                                let action = if confirm {
+                                    eprintln!("\n  param {} needs confirmation, auto-confirming", pid);
+                                    CMD_STATUS_CONFIRM
+                                } else {
+                                    eprint!("\n  param {} needs confirmation", pid);
+                                    let answer = prompt_yes_no("Confirm?")?;
+                                    if answer {
+                                        CMD_STATUS_CONFIRM
+                                    } else {
+                                        CMD_STATUS_CANCEL
+                                    }
+                                };
+                                {
+                                    let mut mgr = app.manager.lock().unwrap();
+                                    if let Some(device) = mgr.get_device_mut(dev_addr) {
+                                        device.parameters.remove(&pid);
+                                    }
+                                }
+                                if let Some(pkt) = build_param_write_packet(dev_addr, pid, &[action]) {
+                                    send_packet_to_serial(port, &pkt)?;
+                                }
+                            }
+                            Some(_) => {
+                                verified.push(pid);
+                                eprintln!("\n  param {} = verified (unexpected status)", pid);
+                            }
+                            None => {
+                                verified.push(pid);
+                                let val = {
+                                    let mgr = app.manager.lock().unwrap();
+                                    mgr.get_device(dev_addr)
+                                        .and_then(|d| d.get_parameter(pid))
+                                        .map(|p| App::format_param_value(p))
+                                        .unwrap_or_else(|| "?".to_string())
+                                };
+                                eprintln!("\n  param {} = {}", pid, val);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    eprintln!();
+    for pid in &ids {
+        if !verified.contains(pid) {
+            eprintln!("  param {}: verification timed out", pid);
+        }
+    }
+
+    Ok(())
+}
+
+/// Walks the nested JSON export tree to find a node by id and returns its value string.
+fn find_value_in_tree(nodes: &[serde_json::Value], target_id: u8) -> Option<String> {
+    for node in nodes {
+        let id = node.get("id").and_then(|v| v.as_u64()).map(|v| v as u8);
+        if id == Some(target_id) {
+            if let Some(val) = node.get("value").and_then(|v| v.as_str()) {
+                return Some(val.to_string());
+            }
+            if let Some(val) = node.get("value_index").and_then(|v| v.as_u64()) {
+                if let Some(opts) = node.get("options").and_then(|v| v.as_array()) {
+                    if let Some(opt) = opts.get(val as usize).and_then(|o| o.as_str()) {
+                        return Some(opt.to_string());
+                    }
+                }
+                return Some(val.to_string());
+            }
+            return None;
+        }
+        if let Some(children) = node.get("children").and_then(|v| v.as_array()) {
+            if let Some(found) = find_value_in_tree(children, target_id) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+// -----------------------------------------------------------------------
+// Schema-based (fast path) helpers
+// -----------------------------------------------------------------------
+
+/// Represents a parameter's schema extracted from a JSON export file.
+#[derive(Debug, Clone)]
+struct SchemaParam {
+    id: u8,
+    name: String,
+    param_type: String,
+    min: Option<f64>,
+    max: Option<f64>,
+    decimal_point: Option<u8>,
+    options: Option<Vec<String>>,
+    max_length: Option<u8>,
+}
+
+/// Parses a JSON schema file into a flat list of parameter schemas.
+fn parse_schema_file(path: &str) -> io::Result<Vec<SchemaParam>> {
+    let json_data = std::fs::read_to_string(path)?;
+    let root: serde_json::Value = serde_json::from_str(&json_data)
+        .map_err(|e| io::Error::other(format!("Invalid JSON in schema file: {}", e)))?;
+    let params = root
+        .get("parameters")
+        .and_then(|p| p.as_array())
+        .ok_or_else(|| io::Error::other("Schema JSON missing 'parameters' array"))?;
+    let mut result = Vec::new();
+    collect_schema_nodes(params, &mut result);
+    Ok(result)
+}
+
+fn collect_schema_nodes(nodes: &[serde_json::Value], out: &mut Vec<SchemaParam>) {
+    for node in nodes {
+        let Some(id) = node.get("id").and_then(|v| v.as_u64()).map(|v| v as u8) else {
+            continue;
+        };
+        let name = node
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let param_type = node
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let decimal_point = if param_type == "float" {
+            let min_raw = node.get("min").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let max_raw = node.get("max").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            infer_decimal_point(min_raw, max_raw)
+        } else {
+            None
+        };
+
+        let options = node
+            .get("options")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
+
+        out.push(SchemaParam {
+            id,
+            name,
+            param_type,
+            min: node.get("min").and_then(|v| v.as_f64()),
+            max: node.get("max").and_then(|v| v.as_f64()),
+            decimal_point,
+            options,
+            max_length: node
+                .get("max_length")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u8),
+        });
+
+        if let Some(children) = node.get("children").and_then(|v| v.as_array()) {
+            collect_schema_nodes(children, out);
+        }
+    }
+}
+
+/// Infers the decimal_point value from inspecting the float representation
+/// of min/max values in the schema. The schema outputs human-readable floats
+/// (already divided by 10^decimal_point), so we count decimal places.
+fn infer_decimal_point(min: f64, max: f64) -> Option<u8> {
+    let check = if min.fract() != 0.0 { min } else { max };
+    if check.fract() == 0.0 {
+        return Some(0);
+    }
+    let s = format!("{}", check);
+    let dp = s.find('.').map(|pos| (s.len() - pos - 1) as u8)?;
+    Some(dp.min(4))
+}
+
+/// Resolves a parameter identifier (numeric ID or name) using schema data.
+fn resolve_param_id_from_schema(schemas: &[SchemaParam], ident: &str) -> Option<u8> {
+    if let Ok(id) = ident.parse::<u8>() {
+        if schemas.iter().any(|s| s.id == id) {
+            return Some(id);
+        }
+    }
+    schemas
+        .iter()
+        .find(|s| s.name.eq_ignore_ascii_case(ident))
+        .map(|s| s.id)
+}
+
+/// Validates user input against a schema parameter's type info and returns
+/// wire-format bytes for a ParameterWrite packet.
+fn resolve_write_data_from_schema(schema: &SchemaParam, input: &str) -> Result<Vec<u8>, String> {
+    match schema.param_type.as_str() {
+        "float" => {
+            let val: f64 = input
+                .parse()
+                .map_err(|_| format!("Invalid number: {}", input))?;
+            let dp = schema.decimal_point.unwrap_or(0) as u32;
+            let divisor = 10_i32.pow(dp) as f64;
+            let int_val = (val * divisor) as i32;
+            if let (Some(min), Some(max)) = (schema.min, schema.max) {
+                let min_int = (min * divisor) as i32;
+                let max_int = (max * divisor) as i32;
+                if int_val < min_int || int_val > max_int {
+                    return Err(format!(
+                        "Value {} out of range [{}, {}]",
+                        val, min, max
+                    ));
+                }
+            }
+            Ok(int_val.to_le_bytes().to_vec())
+        }
+        "text_selection" => {
+            let opts = schema.options.as_deref().unwrap_or(&[]);
+            match input.parse::<u8>() {
+                Ok(idx) => {
+                    if !opts.is_empty() && (idx as usize) >= opts.len() {
+                        return Err(format!(
+                            "Index {} out of range (0-{})",
+                            idx,
+                            opts.len() - 1
+                        ));
+                    }
+                    Ok(vec![idx])
+                }
+                Err(_) => {
+                    if let Some(pos) = opts
+                        .iter()
+                        .position(|o| o.eq_ignore_ascii_case(input))
+                    {
+                        Ok(vec![pos as u8])
+                    } else {
+                        Err(format!(
+                            "Invalid option: '{}'. Use index 0-{} or option name",
+                            input,
+                            opts.len().saturating_sub(1)
+                        ))
+                    }
+                }
+            }
+        }
+        "string" => {
+            let max_len = schema.max_length.unwrap_or(255) as usize;
+            if input.len() > max_len {
+                return Err(format!(
+                    "String too long ({} > {} max)",
+                    input.len(),
+                    max_len
+                ));
+            }
+            Ok(input.as_bytes().to_vec())
+        }
+        "command" => match input.to_lowercase().as_str() {
+            "start" => Ok(vec![CMD_STATUS_START]),
+            "confirm" | "yes" | "y" => Ok(vec![CMD_STATUS_CONFIRM]),
+            "cancel" | "no" | "n" => Ok(vec![CMD_STATUS_CANCEL]),
+            "poll" => Ok(vec![CMD_STATUS_POLL]),
+            other => Err(format!(
+                "Invalid command action: '{}'. Use start, confirm, cancel, or poll",
+                other
+            )),
+        },
+        other => Err(format!("Parameter type '{}' is not writable", other)),
+    }
+}
+
+/// Loads only the specific parameter IDs from the device, skipping full enumeration.
+fn load_specific_params(
+    app: &mut App,
+    param_ids: &[u8],
+    timeout: u64,
+) -> io::Result<Box<dyn SerialPort>> {
+    let mut port = open_port(app)?;
+    if !discover_device(app, &mut port, timeout) {
+        return Err(io::Error::other("Device discovery failed"));
+    }
+
+    let dev_addr = app.selected_device.unwrap();
+    let mut remaining: std::collections::HashSet<u8> = param_ids.iter().copied().collect();
+    let mut read_buf = [0u8; 512];
+    let start = Instant::now();
+
+    {
+        let mut mgr = app.manager.lock().unwrap();
+        for &pid in param_ids {
+            if let Some(pkt) = mgr.request_parameter(dev_addr, pid, 0) {
+                let _ = send_packet_to_serial(&mut port, &pkt);
+            }
+        }
+    }
+
+    eprint!("Loading {} parameter(s)", param_ids.len());
+
+    while !remaining.is_empty() && start.elapsed() < Duration::from_secs(timeout) {
+        let time_ms = start_time().elapsed().as_millis() as u32;
+        {
+            let mut mgr = app.manager.lock().unwrap();
+            mgr.update_time(time_ms);
+        }
+
+        {
+            let mut mgr = app.manager.lock().unwrap();
+            let outgoing = mgr.drain_all();
+            drop(mgr);
+            for pkt in outgoing {
+                let _ = send_packet_to_serial(&mut port, &pkt);
+            }
+        }
+
+        let bytes_read = read_from_serial(&mut port, &mut read_buf)?;
+        if bytes_read > 0 {
+            let mut parser = app.parser.lock().unwrap();
+            let packets: Vec<_> = parser.iter_packets(&read_buf[..bytes_read]).collect();
+            drop(parser);
+
+            for packet_result in packets {
+                if let Ok(ref packet) = packet_result {
+                    let loaded_id = match packet {
+                        Packet::ParameterSettingsEntry(entry)
+                            if entry.chunks_remaining == 0 =>
+                        {
+                            Some(entry.parameter_number)
+                        }
+                        Packet::ParameterChunk(chunk) if chunk.chunks_remaining == 0 => {
+                            Some(chunk.param_number)
+                        }
+                        _ => None,
+                    };
+
+                    {
+                        let mut mgr = app.manager.lock().unwrap();
+                        mgr.handle_packet(packet);
+
+                        if let Some(pid) = loaded_id {
+                            if remaining.contains(&pid) {
+                                if mgr
+                                    .get_device(dev_addr)
+                                    .and_then(|d| d.get_parameter(pid))
+                                    .is_some()
+                                {
+                                    remaining.remove(&pid);
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(pid) = loaded_id {
+                        if !remaining.contains(&pid) {
+                            eprint!(".");
+                        }
+                    }
+                }
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    eprintln!();
+
+    if !remaining.is_empty() {
+        eprintln!(
+            "Warning: {} parameter(s) could not be loaded: {:?}",
+            remaining.len(),
+            remaining
+        );
+    }
+
+    Ok(port)
+}
+
+/// Export using schema: only query the specific param(s) by ID instead of
+/// enumerating all parameters.
+fn run_export_with_schema(
+    app: &mut App,
+    format: &ExportFormat,
+    output: Option<&str>,
+    get: Option<&str>,
+    schema_path: &str,
+    timeout: u64,
+) -> io::Result<()> {
+    let schemas = parse_schema_file(schema_path)?;
+    eprintln!("Loaded schema with {} parameter(s)", schemas.len());
+
+    let Some(ident) = get else {
+        eprintln!("--from-schema requires --get to specify which parameter(s) to query");
+        std::process::exit(1);
+    };
+
+    let param_ids = {
+        let mut ids = Vec::new();
+        for part in ident.split(',') {
+            let trimmed = part.trim();
+            if let Some(id) = resolve_param_id_from_schema(&schemas, trimmed) {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            } else {
+                eprintln!("No parameter matching '{}' in schema", trimmed);
+                std::process::exit(1);
+            }
+        }
+        ids
+    };
+
+    eprintln!("Querying {} parameter(s) by ID...", param_ids.len());
+    let _port = load_specific_params(app, &param_ids, timeout)?;
+
+    let mgr = app.manager.lock().unwrap();
+    let dev_addr = app.selected_device.unwrap();
+    let device = mgr.get_device(dev_addr).unwrap();
+
+    if param_ids.len() == 1 {
+        let pid = param_ids[0];
+        let Some(param) = device.get_parameter(pid) else {
+            drop(mgr);
+            eprintln!("Parameter {} not loaded", pid);
+            std::process::exit(1);
+        };
+        let node = param_to_export_node(param, device, format);
+        drop(mgr);
+
+        let json = serde_json::to_string_pretty(&node)
+            .map_err(|e| io::Error::other(format!("JSON serialization failed: {}", e)))?;
+
+        match output {
+            Some(path) => {
+                std::fs::write(path, &json)?;
+                eprintln!("Exported to {}", path);
+            }
+            None => println!("{}", json),
+        }
+    } else {
+        let nodes: Vec<ExportNode> = param_ids
+            .iter()
+            .filter_map(|&pid| {
+                device.get_parameter(pid).map(|p| param_to_export_node(p, device, format))
+            })
+            .collect();
+        drop(mgr);
+
+        let json = serde_json::to_string_pretty(&nodes)
+            .map_err(|e| io::Error::other(format!("JSON serialization failed: {}", e)))?;
+
+        match output {
+            Some(path) => {
+                std::fs::write(path, &json)?;
+                eprintln!("Exported to {}", path);
+            }
+            None => println!("{}", json),
+        }
+    }
+
+    Ok(())
+}
+
+/// Set using schema: write parameters directly by ID without full enumeration.
+fn run_set_with_schema(
+    app: &mut App,
+    assignments: &[String],
+    from_json: Option<&str>,
+    schema_path: &str,
+    timeout: u64,
+    check: bool,
+    confirm: bool,
+) -> io::Result<()> {
+    let schemas = parse_schema_file(schema_path)?;
+    eprintln!("Loaded schema with {} parameter(s)", schemas.len());
+
+    let mut port = open_port(app)?;
+    if !discover_device(app, &mut port, timeout) {
+        return Err(io::Error::other("Device discovery failed"));
+    }
+
+    let dev_addr = app.selected_device.unwrap();
+    let mut writes: Vec<(u8, Vec<u8>)> = Vec::new();
+
+    if let Some(json_path) = from_json {
+        let json_data = std::fs::read_to_string(json_path)?;
+        let root: serde_json::Value = serde_json::from_str(&json_data)
+            .map_err(|e| io::Error::other(format!("Invalid JSON: {}", e)))?;
+        if let Some(params) = root.get("parameters").and_then(|p| p.as_array()) {
+            let flat = flatten_export_nodes(params);
+            for (id, _name) in flat {
+                if let Some(val_str) = find_value_in_tree(params, id) {
+                    if let Some(schema) = schemas.iter().find(|s| s.id == id) {
+                        match resolve_write_data_from_schema(schema, &val_str) {
+                            Ok(data) => writes.push((id, data)),
+                            Err(e) => eprintln!("Skipping param {}: {}", id, e),
+                        }
+                    } else {
+                        eprintln!("Skipping param {}: not found in schema", id);
+                    }
+                }
+            }
+        }
+    }
+
+    for assignment in assignments {
+        let Some((ident, value)) = parse_assignment(assignment) else {
+            continue;
+        };
+        let Some(id) = resolve_param_id_from_schema(&schemas, &ident) else {
+            eprintln!("Unknown parameter: '{}' (not in schema)", ident);
+            continue;
+        };
+        let Some(schema) = schemas.iter().find(|s| s.id == id) else {
+            eprintln!("No schema for parameter {}", id);
+            continue;
+        };
+        if let Some(ref val) = value {
+            match resolve_write_data_from_schema(schema, val) {
+                Ok(data) => writes.push((id, data)),
+                Err(e) => eprintln!("Invalid value for param {}: {}", id, e),
+            }
+        } else {
+            if schema.param_type == "command" {
+                writes.push((id, vec![CMD_STATUS_START]));
+            } else {
+                eprintln!(
+                    "Parameter '{}' requires a value. Use {}=value",
+                    ident, ident
+                );
+            }
+        }
+    }
+
+    if writes.is_empty() {
+        eprintln!("No valid writes to perform");
+        return Ok(());
+    }
+
+    for (pid, data) in &writes {
+        info!(
+            "Writing param {} ({} bytes) to device 0x{:02X}",
+            pid,
+            data.len(),
+            dev_addr as u8
+        );
+        if let Some(pkt) = build_param_write_packet(dev_addr, *pid, data) {
+            send_packet_to_serial(&mut port, &pkt)?;
+            eprintln!("Sent write for param {}", pid);
+        }
+    }
+
+    if check {
+        app.ensure_param_entries(
+            schemas.iter().map(|s| s.id).max().map(|m| m + 1).unwrap_or(0),
+        );
+        verify_writes(app, &mut port, &writes, dev_addr, confirm)?;
+    }
+
+    Ok(())
+}
+
 fn main() {
     let args = Args::parse();
 
     init_logging(&args.log_file);
 
-    eprintln!("uf-crsf Parameter TUI");
-    eprintln!("Logging to {}", args.log_file);
-    eprintln!();
+    let mut app = App::new(args.port.clone(), args.baud);
 
     info!(
-        "Starting CRSF Parameter TUI on {} @ {} baud (timeout {}s)",
+        "Starting CRSF Parameter tool on {} @ {} baud (timeout {}s)",
         args.port, args.baud, args.discovery_timeout
     );
 
-    let mut app = App::new(args.port, args.baud);
+    let result = match &args.command {
+        Some(CliCommand::Export {
+            format,
+            output,
+            get,
+            from_schema,
+        }) => {
+            eprintln!("uf-crsf Parameter Export");
+            run_export(
+                &mut app,
+                format,
+                output.as_deref(),
+                get.as_deref(),
+                from_schema.as_deref(),
+                args.discovery_timeout,
+            )
+        }
+        Some(CliCommand::Set {
+            assignments,
+            from_json,
+            from_schema,
+            check,
+            confirm,
+        }) => {
+            eprintln!("uf-crsf Parameter Set");
+            run_set(
+                &mut app,
+                assignments,
+                from_json.as_deref(),
+                from_schema.as_deref(),
+                args.discovery_timeout,
+                *check,
+                *confirm,
+            )
+        }
+        None => {
+            eprintln!("uf-crsf Parameter TUI");
+            eprintln!("Logging to {}", args.log_file);
+            eprintln!();
+            run(&mut app, args.discovery_timeout)
+        }
+    };
 
-    if let Err(e) = run(&mut app, args.discovery_timeout) {
+    if let Err(e) = result {
         error!("Fatal error: {}", e);
         eprintln!("\nFatal error: {}", e);
         std::process::exit(1);

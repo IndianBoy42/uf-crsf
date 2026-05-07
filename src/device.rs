@@ -769,6 +769,7 @@ impl DeviceManager {
                 addr, device.name, device.parameters_total, device.parameter_version
             );
             let _ = self.devices.insert(addr, device);
+            self.enqueue_next_parameter(addr);
         } else {
             #[cfg(feature = "logging")]
             warn!("device: failed to parse DeviceInformation (unknown src_addr 0x{:02X})", info.src_addr);
@@ -1228,6 +1229,28 @@ impl DeviceManager {
         &mut self,
     ) -> Vec<Vec<u8, { constants::CRSF_MAX_PACKET_SIZE }>, { MAX_PENDING_OUTPUT }> {
         core::mem::replace(&mut self.pending_output, Vec::new())
+    }
+
+    /// Returns all pending outgoing packets: retries from timeout processing
+    /// plus auto-generated requests (chunk requests, next-param requests).
+    ///
+    /// Combines [`DeviceManager::process_timeouts()`] and
+    /// [`DeviceManager::drain_output()`] into a single call.
+    /// This is the recommended way to get packets to send after each tick.
+    pub fn drain_all(
+        &mut self,
+    ) -> Vec<
+        Vec<u8, { constants::CRSF_MAX_PACKET_SIZE }>,
+        { MAX_PENDING_REQUESTS + MAX_PENDING_OUTPUT },
+    > {
+        let mut all = Vec::new();
+        for pkt in self.process_timeouts() {
+            let _ = all.push(pkt);
+        }
+        for pkt in self.drain_output() {
+            let _ = all.push(pkt);
+        }
+        all
     }
 
     // -----------------------------------------------------------------------
@@ -1703,6 +1726,10 @@ mod tests {
 
         let device = manager.get_device(PacketAddress::Transmitter).unwrap();
         assert!(device.parameters_loaded);
+        // After loading the only param, enqueue_next_parameter won't queue
+        // anything (parameters_loaded is true), but the initial auto-seed
+        // from handle_device_info may have output. Drain to verify emptiness.
+        let _ = manager.drain_output();
         assert!(
             manager.drain_output().is_empty(),
             "No auto-queue when all params loaded"
@@ -1847,7 +1874,8 @@ mod tests {
     fn test_drain_output_returns_and_clears() {
         let mut manager = setup_manager_with_device(PacketAddress::Transmitter, 5);
 
-        // Nothing queued yet
+        // Auto-seed from handle_device_info queues param 0 request
+        let _ = manager.drain_output();
         assert!(manager.drain_output().is_empty());
 
         // Queue something (use write_parameter which returns None but doesn't queue — actually
@@ -1867,6 +1895,9 @@ mod tests {
     #[test]
     fn test_handle_parameter_entry_removes_pending_request() {
         let mut manager = setup_manager_with_device(PacketAddress::Transmitter, 5);
+        // Clear auto-seeded state so we control pending_requests precisely
+        manager.pending_requests.clear();
+        let _ = manager.drain_output();
 
         // Manually add a pending request for param 2, chunk 0
         let req = PendingRequest {
@@ -1935,6 +1966,9 @@ mod tests {
     #[test]
     fn test_remove_pending_request_removes_all_chunks_for_param() {
         let mut manager = setup_manager_with_device(PacketAddress::Transmitter, 5);
+        // Clear the auto-seeded pending request for param 0
+        manager.pending_requests.clear();
+        let _ = manager.drain_output();
 
         // Simulate a multi-chunk sequence: pending entries for chunks 0, 1, 2
         for chunk_number in 0u8..3 {
