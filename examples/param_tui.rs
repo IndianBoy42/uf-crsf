@@ -147,6 +147,7 @@ struct App {
     breadcrumb: Vec<(u8, String)>,
     editing: bool,
     edit_buffer: String,
+    confirming_command: bool,
     status_message: String,
     connected: bool,
     port_path: String,
@@ -177,6 +178,7 @@ impl App {
             breadcrumb: vec![(0, "ROOT".to_string())],
             editing: false,
             edit_buffer: String::new(),
+            confirming_command: false,
             status_message: "Discovering devices...".to_string(),
             connected: false,
             port_path,
@@ -853,7 +855,18 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
-                if app.editing {
+                if app.confirming_command {
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Enter => {
+                            app.confirming_command = false;
+                            execute_command(app, port);
+                        }
+                        KeyCode::Char('n') | KeyCode::Esc => {
+                            app.confirming_command = false;
+                        }
+                        _ => {}
+                    }
+                } else if app.editing {
                     match key.code {
                         KeyCode::Enter => apply_edit(app, port),
                         KeyCode::Esc => {
@@ -933,10 +946,12 @@ fn handle_select(app: &mut App) {
         Some(ParameterData::Folder { .. }) => {
             app.enter_folder(*param_id, param.name.to_string());
         }
+        Some(ParameterData::Command { .. }) => {
+            app.confirming_command = true;
+        }
         Some(ParameterData::Float { .. })
         | Some(ParameterData::TextSelection { .. })
-        | Some(ParameterData::String { .. })
-        | Some(ParameterData::Command { .. }) => {
+        | Some(ParameterData::String { .. }) => {
             app.editing = true;
             app.edit_buffer.clear();
         }
@@ -1023,7 +1038,6 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
             }
         }
         Some(ParameterData::String { .. }) => Some(input.as_bytes().to_vec()),
-        Some(ParameterData::Command { .. }) => Some(vec![0]),
         _ => None,
     };
 
@@ -1060,6 +1074,50 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
                 Err(e) => {
                     app.status_message = format!("Write error: {}", e);
                 }
+            }
+        }
+    }
+}
+
+fn execute_command(app: &mut App, port: &mut Box<dyn SerialPort>) {
+    let params = app.get_current_parameters();
+    let selected = app.list_state.selected().unwrap_or(0);
+    if selected >= params.len() {
+        return;
+    }
+    let (param_id, param) = &params[selected];
+    let Some(dev_addr) = app.selected_device else {
+        return;
+    };
+    if !matches!(&param.data, Some(ParameterData::Command { .. })) {
+        return;
+    }
+    let pid = *param_id;
+    info!(
+        "Executing command {} to device 0x{:02X}",
+        pid,
+        dev_addr as u8
+    );
+    if let Some(pkt) = build_param_write_packet(dev_addr, pid, &[0]) {
+        match send_packet_to_serial(port, &pkt) {
+            Ok(()) => {
+                app.status_message = format!("Command {} sent", pid);
+                if let Some(reread_pkt) = app
+                    .manager
+                    .lock()
+                    .unwrap()
+                    .request_parameter(dev_addr, pid, 0)
+                {
+                    let _ = send_packet_to_serial(port, &reread_pkt);
+                    app.param_request_pending = true;
+                    if let Some(entry) = app.param_entries.get_mut(&pid) {
+                        entry.pending = true;
+                        entry.needs_reread = true;
+                    }
+                }
+            }
+            Err(e) => {
+                app.status_message = format!("Command error: {}", e);
             }
         }
     }
@@ -1174,7 +1232,24 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(detail, area);
 
-    if app.editing {
+    if app.confirming_command {
+        let confirm = Paragraph::new("Execute this command? [y]es / [n]o")
+            .style(Style::default().fg(Color::Yellow))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Confirm (Esc to cancel) "),
+            );
+        f.render_widget(
+            confirm,
+            Rect {
+                x: area.x + 2,
+                y: area.y + area.height.saturating_sub(5),
+                width: area.width.saturating_sub(4),
+                height: 3,
+            },
+        );
+    } else if app.editing {
         let input = Paragraph::new(format!("> {}", app.edit_buffer))
             .style(Style::default().fg(Color::Yellow))
             .block(
