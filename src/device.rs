@@ -791,6 +791,19 @@ impl DeviceManager {
             return;
         }
 
+        // Ignore chunks for parameters that are already loaded to prevent stale
+        // retries from restarting the reassembler after successful completion.
+        if self
+            .devices
+            .get(&device_addr)
+            .and_then(|d| d.parameters.get(&chunk.param_number))
+            .is_some()
+        {
+            // Also purge any leftover pending requests for this param
+            self.remove_pending_request(device_addr, chunk.param_number);
+            return;
+        }
+
         match self.chunk_reassembler.push(chunk.clone()) {
             Ok(Some(entry)) => {
                 // Complete parameter assembled successfully
@@ -1121,15 +1134,14 @@ impl DeviceManager {
         Some(vec)
     }
 
-    /// Remove all pending requests matching (device, parameter).
+    /// Remove ALL pending requests matching (device, parameter).
+    ///
+    /// Multi-chunk sequences accumulate one pending entry per chunk; all must
+    /// be purged when a parameter finishes (successfully or with error) to
+    /// prevent stale retries from re-triggering a completed sequence.
     fn remove_pending_request(&mut self, device_addr: PacketAddress, param_id: u8) {
-        if let Some(pos) = self
-            .pending_requests
-            .iter()
-            .position(|r| r.device_addr == device_addr && r.parameter_id == param_id)
-        {
-            self.pending_requests.swap_remove(pos);
-        }
+        self.pending_requests
+            .retain(|r| !(r.device_addr == device_addr && r.parameter_id == param_id));
     }
 
     /// Queue a request for the next chunk of a partially-received parameter.
@@ -1754,5 +1766,92 @@ mod tests {
         assert!(manager.chunk_reassembler.is_idle());
         assert!(manager.drain_output().is_empty());
         assert_eq!(manager.devices().count(), 0);
+    }
+
+    #[test]
+    fn test_remove_pending_request_removes_all_chunks_for_param() {
+        let mut manager = setup_manager_with_device(PacketAddress::Transmitter, 5);
+
+        // Simulate a multi-chunk sequence: pending entries for chunks 0, 1, 2
+        for chunk_number in 0u8..3 {
+            let req = PendingRequest {
+                device_addr: PacketAddress::Transmitter,
+                parameter_id: 2,
+                chunk_number,
+                expected_chunks_remaining: None,
+                retries: 0,
+                timestamp: 0,
+            };
+            manager.pending_requests.push(req).unwrap();
+        }
+        // Add a request for a different param to ensure it's untouched
+        manager
+            .pending_requests
+            .push(PendingRequest {
+                device_addr: PacketAddress::Transmitter,
+                parameter_id: 3,
+                chunk_number: 0,
+                expected_chunks_remaining: None,
+                retries: 0,
+                timestamp: 0,
+            })
+            .unwrap();
+        assert_eq!(manager.pending_requests.len(), 4);
+
+        manager.remove_pending_request(PacketAddress::Transmitter, 2);
+
+        // All three param-2 entries must be gone, param-3 must remain
+        let param2_remaining = manager
+            .pending_requests
+            .iter()
+            .filter(|r| r.parameter_id == 2)
+            .count();
+        assert_eq!(param2_remaining, 0, "all param-2 requests must be removed");
+        let param3_remaining = manager
+            .pending_requests
+            .iter()
+            .filter(|r| r.parameter_id == 3)
+            .count();
+        assert_eq!(param3_remaining, 1, "param-3 request must be untouched");
+    }
+
+    #[test]
+    fn test_stale_chunk_for_loaded_param_is_ignored() {
+        use crate::packets::ParameterDataType;
+        let mut manager = setup_manager_with_device(PacketAddress::Transmitter, 5);
+
+        // Load param 2 as a single-chunk entry
+        let entry = ParameterSettingsEntry::new(
+            PacketAddress::Handset as u8,
+            PacketAddress::Transmitter as u8,
+            2,
+            0,
+            0,
+            ParameterDataType::Info as u8,
+            "Loaded",
+        )
+        .unwrap()
+        .add_data(ParameterData::Info {
+            info: String::try_from("yes").unwrap(),
+        });
+        manager.handle_parameter_entry(&entry);
+        let _ = manager.drain_output(); // flush auto-enqueued next-param request
+
+        // Now feed a stale chunk for param 2 (simulates a retry arriving late)
+        let stale_chunk =
+            ParameterChunk::from_bytes(&[0xEA, 0xEE, 0x02, 0x01, 0x00, 0x0C, b'X', 0x00])
+                .unwrap();
+        manager.handle_parameter_chunk(&stale_chunk);
+
+        // Reassembler must remain idle (chunk was ignored, not started a new assembly)
+        assert!(
+            manager.chunk_reassembler.is_idle(),
+            "stale chunk must not restart reassembler"
+        );
+        // No new output should have been queued
+        assert!(
+            manager.drain_output().is_empty(),
+            "stale chunk must not enqueue new requests"
+        );
     }
 }
