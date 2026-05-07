@@ -31,7 +31,6 @@ embedded-io-async = "0.7.0"
 ratatui = "0.29"
 crossterm = "0.28"
 log = "0.4"
-env_logger = "0.11"
 
 
 [[example]]

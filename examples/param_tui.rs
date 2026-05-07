@@ -7,11 +7,12 @@
 //!   cargo run --example param_tui -- /dev/ttyACM0
 
 use std::env;
-use std::io;
+use std::fs::OpenOptions;
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, LevelFilter, Log, Metadata, Record};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -34,7 +35,64 @@ use uf_crsf::parser::CrsfParser;
 
 const BAUD_RATE: u32 = 400_000;
 const PARAM_POLL_INTERVAL_MS: u32 = 200;
-const DISCOVERY_TIMEOUT_SECS: u64 = 8;
+const LOG_FILE: &str = "/tmp/uf-crsf-tui.log";
+
+/// Logger that writes all log records to a file.
+///
+/// Used alongside stderr output during the pre-TUI phase.
+/// During TUI (alternate screen), stderr is hidden but the file
+/// still captures everything for post-mortem debugging.
+struct FileLogger {
+    file: Mutex<std::fs::File>,
+}
+
+impl Log for FileLogger {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &Record) {
+        if let Ok(mut file) = self.file.lock() {
+            let elapsed = start_time().elapsed();
+            let _ = writeln!(
+                file,
+                "[{:>5}][{:>3}.{:03}] {}",
+                record.level(),
+                elapsed.as_secs(),
+                elapsed.subsec_millis(),
+                record.args()
+            );
+            let _ = file.flush();
+        }
+    }
+
+    fn flush(&self) {
+        if let Ok(mut file) = self.file.lock() {
+            let _ = file.flush();
+        }
+    }
+}
+
+fn start_time() -> Instant {
+    use std::sync::OnceLock;
+    static START: OnceLock<Instant> = OnceLock::new();
+    *START.get_or_init(Instant::now)
+}
+
+fn init_logging() {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(LOG_FILE)
+        .expect("Failed to open log file");
+    let logger = Box::new(FileLogger {
+        file: Mutex::new(file),
+    });
+    log::set_logger(Box::leak(logger)).expect("Failed to set logger");
+    log::set_max_level(LevelFilter::Debug);
+    info!("Log started");
+}
 
 struct App {
     manager: Arc<Mutex<DeviceManager>>,
@@ -326,7 +384,7 @@ fn send_packet_to_serial(port: &mut Box<dyn SerialPort>, packet_bytes: &[u8]) ->
         packet_bytes
     );
     port.write_all(packet_bytes)?;
-    port.flush()?;
+    // port.flush()?;
     Ok(())
 }
 
@@ -392,10 +450,137 @@ fn try_packet_addr(v: u8) -> Option<PacketAddress> {
     PacketAddress::try_from_primitive(v).ok()
 }
 
+/// Runs the pre-TUI discovery phase in normal terminal mode, then
+/// transitions to the interactive TUI once a device is found.
+fn run(app: &mut App) -> io::Result<()> {
+    // ── Phase 1: Open serial port ──────────────────────────────────
+    let mut port = open_port(app)?;
+
+    // ── Phase 2: Discover device ───────────────────────────────────
+    if !discover_device(app, &mut port) {
+        eprintln!();
+        eprintln!("Troubleshooting:");
+        eprintln!("  1. Is the device powered on?");
+        eprintln!(
+            "  2. Is the serial port correct? (current: {})",
+            app.port_path
+        );
+        eprintln!("     Try: ls /dev/ttyACM* /dev/ttyUSB*");
+        eprintln!("  3. Is the baud rate correct? (current: {})", BAUD_RATE);
+        eprintln!("  4. Permission denied? Fix: sudo usermod -aG dialout $USER");
+        eprintln!("  5. Is the device in use by another process?");
+        eprintln!();
+        eprintln!("Check {} for detailed debug output", LOG_FILE);
+        return Err(io::Error::other("Device discovery failed"));
+    }
+
+    // ── Phase 3: Enter TUI ─────────────────────────────────────────
+    let device_name = {
+        let mgr = app.manager.lock().unwrap();
+        mgr.get_device(app.selected_device.unwrap())
+            .map(|d| d.name.clone().to_string())
+            .unwrap_or_else(|| "Device".to_string())
+    };
+    eprintln!("\n✓ {} found! Entering TUI...", device_name);
+    info!("Device found, entering TUI");
+    run_tui(app, &mut port)
+}
+
+fn open_port(app: &App) -> io::Result<Box<dyn SerialPort>> {
+    eprint!("Opening {} @ {} baud... ", app.port_path, BAUD_RATE);
+    match serialport::new(&app.port_path, BAUD_RATE)
+        .timeout(Duration::from_millis(50))
+        .open()
+    {
+        Ok(p) => {
+            eprintln!("OK");
+            info!("Serial port opened");
+            Ok(p)
+        }
+        Err(e) => {
+            eprintln!("FAILED");
+            error!("Failed to open {}: {}", app.port_path, e);
+            eprintln!("\nError: Failed to open {}: {}", app.port_path, e);
+            eprintln!();
+            eprintln!("Possible causes:");
+            eprintln!("  - Device not plugged in or powered on");
+            eprintln!("  - Wrong port (check: ls /dev/ttyACM* /dev/ttyUSB*)");
+            eprintln!("  - Permission denied (fix: sudo usermod -aG dialout $USER)");
+            eprintln!("  - Device in use by another process");
+            Err(io::Error::other(format!(
+                "Failed to open {}",
+                app.port_path
+            )))
+        }
+    }
+}
+
+/// Sends pings and waits for a device response (visible stderr output).
+/// Returns true if a device was found within the timeout.
+fn discover_device(app: &mut App, port: &mut Box<dyn SerialPort>) -> bool {
+    app.connected = true;
+    app.discovery_start = Instant::now();
+    let discover_start = Instant::now();
+    let mut last_ping = Instant::now();
+    let mut read_buf = [0u8; 512];
+
+    eprint!("Discovering device");
+    info!("Starting device discovery");
+
+    let mut first = true;
+    loop {
+        let now = Instant::now();
+
+        // Send pings every 1s
+        if first || now.duration_since(last_ping) >= Duration::from_secs(1) {
+            first = false;
+            last_ping = now;
+            let elapsed = discover_start.elapsed().as_secs();
+            eprint!(".");
+            debug!("Discovery ping at {}s", elapsed);
+            if let Some(ping) = build_ping_packet() {
+                let _ = send_packet_to_serial(port, &ping);
+            }
+            if elapsed >= 10 {
+                eprintln!(" (no response after {}s)", elapsed);
+                warn!("Device discovery timed out after {}s", elapsed);
+                return false;
+            }
+        }
+
+        // Read serial with short polling
+        match read_from_serial(port, &mut read_buf) {
+            Ok(bytes_read) if bytes_read > 0 => {
+                let mut parser = app.parser.lock().unwrap();
+                let mut mgr = app.manager.lock().unwrap();
+                for packet in parser.iter_packets(&read_buf[..bytes_read]).flatten() {
+                    if let Packet::DeviceInformation(info) = &packet {
+                        let addr =
+                            try_packet_addr(info.src_addr).unwrap_or(PacketAddress::Transmitter);
+                        app.selected_device = Some(addr);
+                        app.device_discovering = false;
+                        info!(
+                            "Discovered: {} (0x{:02X}), {} params",
+                            info.device_name(),
+                            info.src_addr,
+                            info.parameters_total
+                        );
+                        mgr.handle_packet(&packet);
+                        return true;
+                    }
+                    mgr.handle_packet(&packet);
+                }
+            }
+            e => {
+                eprintln!("{e:?}");
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// RAII guard that restores terminal state on drop.
-///
-/// Ensures raw mode and alternate screen are cleaned up on any exit path:
-/// normal return, error return, panic, or Ctrl+C (when it generates SIGINT).
 struct TerminalGuard;
 
 impl TerminalGuard {
@@ -413,66 +598,15 @@ impl Drop for TerminalGuard {
     }
 }
 
-fn run(app: &mut App) -> io::Result<()> {
+fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
     let _guard = TerminalGuard::enter()?;
-
-    let mut port: Box<dyn SerialPort> = match serialport::new(&app.port_path, BAUD_RATE)
-        .timeout(Duration::from_millis(50))
-        .open()
-    {
-        Ok(p) => p,
-        Err(e) => {
-            let hint = match e.kind() {
-                serialport::ErrorKind::NoDevice => format!(
-                    "Serial port '{}' not found or unavailable.\n\n\
-                     Possible causes:\n\
-                     - The device is not plugged in or not powered on\n\
-                     - The device uses a different port (check with: ls /dev/ttyACM* /dev/ttyUSB*)\n\
-                     - Permission denied (fix with: sudo usermod -aG dialout $USER)\n\
-                     - The device is in use by another process\n\
-                     - You need to specify a different port: cargo run --example param_tui -- <PORT>",
-                    app.port_path
-                ),
-                serialport::ErrorKind::InvalidInput => format!(
-                    "Invalid serial port configuration for '{}'.\n\n\
-                     The port name or parameters may be incorrect.\n\
-                     Try: cargo run --example param_tui -- /dev/ttyACM0",
-                    app.port_path
-                ),
-                serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied) => format!(
-                    "Permission denied opening '{}'.\n\n\
-                     Fix by adding your user to the dialout group:\n\
-                     sudo usermod -aG dialout $USER\n\
-                     Then log out and back in (or run: newgrp dialout)",
-                    app.port_path
-                ),
-                _ => format!(
-                    "Failed to open '{}' ({}).\n\n\
-                     Possible causes:\n\
-                     - Device not plugged in or not powered on\n\
-                     - Wrong port path (check with: ls /dev/ttyACM* /dev/ttyUSB*)\n\
-                     - Permission denied (fix with: sudo usermod -aG dialout $USER)\n\
-                     - Device in use by another process",
-                    app.port_path, e
-                ),
-            };
-            error!("{}", hint);
-            return Err(io::Error::other(hint));
-        }
-    };
 
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    app.connected = true;
-    app.discovery_start = Instant::now();
-    info!("Serial port {} opened at {} baud", app.port_path, BAUD_RATE);
-
-    if let Some(ping) = build_ping_packet() {
-        info!("Sending initial device ping");
-        let _ = send_packet_to_serial(&mut port, &ping);
-    }
+    app.last_poll = Instant::now();
+    app.status_message = format!("Connected to {} @ {} baud", app.port_path, BAUD_RATE);
 
     let mut read_buf = [0u8; 512];
     let tick_rate = Duration::from_millis(50);
@@ -486,7 +620,7 @@ fn run(app: &mut App) -> io::Result<()> {
             mgr.update_time(time_ms);
         }
 
-        match read_from_serial(&mut port, &mut read_buf) {
+        match read_from_serial(port, &mut read_buf) {
             Ok(bytes_read) if bytes_read > 0 => {
                 let mut parser = app.parser.lock().unwrap();
                 let mut mgr = app.manager.lock().unwrap();
@@ -494,49 +628,24 @@ fn run(app: &mut App) -> io::Result<()> {
                     match packet_result {
                         Ok(ref packet) => {
                             debug!("Parsed packet: {:?}", packet);
-                            match &packet {
-                                Packet::DeviceInformation(info) => {
-                                    info!(
-                                        "Device discovered: {} (0x{:02X}), {} parameters, serial {:?}, hw_id {}, fw_id {}",
-                                        info.device_name(),
-                                        info.src_addr,
-                                        info.parameters_total,
-                                        info.serial_number,
-                                        info.hardware_id,
-                                        info.firmware_id,
-                                    );
-                                    app.selected_device = Some(
-                                        try_packet_addr(info.src_addr)
-                                            .unwrap_or(PacketAddress::Transmitter),
-                                    );
-                                    app.device_discovering = false;
-                                    app.params_loaded = false;
-                                    app.next_param_id = 0;
-                                    app.param_request_pending = false;
-                                    app.discovery_timed_out = false;
-                                    app.status_message = format!(
-                                        "Device found: {} (0x{:02X}) - {} params",
-                                        info.device_name(),
-                                        info.src_addr,
-                                        info.parameters_total
-                                    );
-                                }
+                            match packet {
                                 Packet::ParameterSettingsEntry(entry)
                                     if entry.chunks_remaining == 0 =>
                                 {
                                     info!(
-                                        "Parameter {} loaded: {} (chunks_remaining {})",
-                                        entry.parameter_number, entry.name, entry.chunks_remaining
+                                        "Param {} loaded: {}",
+                                        entry.parameter_number, entry.name
                                     );
                                     app.param_request_pending = false;
+                                }
+                                Packet::DeviceInformation(_) => {
+                                    // Already discovered in Phase 2
                                 }
                                 _ => {}
                             }
                             mgr.handle_packet(packet);
                         }
-                        Err(e) => {
-                            warn!("Packet parse error: {:?}", e);
-                        }
+                        Err(e) => warn!("Packet parse error: {:?}", e),
                     }
                 }
             }
@@ -548,10 +657,11 @@ fn run(app: &mut App) -> io::Result<()> {
             let retry_packets = mgr.process_timeouts();
             drop(mgr);
             for retry in retry_packets {
-                let _ = send_packet_to_serial(&mut port, &retry);
+                let _ = send_packet_to_serial(port, &retry);
             }
         }
 
+        // Parameter enumeration
         if app.selected_device.is_some()
             && !app.params_loaded
             && !app.param_request_pending
@@ -559,27 +669,18 @@ fn run(app: &mut App) -> io::Result<()> {
                 >= Duration::from_millis(PARAM_POLL_INTERVAL_MS as u64)
         {
             app.last_poll = now;
-
             let mgr = app.manager.lock().unwrap();
             if let Some(dev_addr) = app.selected_device {
                 if let Some(device) = mgr.get_device(dev_addr) {
                     if device.parameters_loaded {
                         app.params_loaded = true;
-                        info!(
-                            "All {} parameters loaded for device 0x{:02X}",
-                            device.parameters.len(),
-                            dev_addr as u8
-                        );
+                        info!("All {} params loaded", device.parameters.len());
                         app.status_message =
                             format!("All {} parameters loaded", device.parameters.len());
                     } else if device.parameters.is_empty() && device.parameters_total > 0 {
                         drop(mgr);
-                        info!(
-                            "Requesting first parameter from device 0x{:02X}",
-                            dev_addr as u8
-                        );
                         if let Some(pkt) = build_param_read_packet(dev_addr, 0, 0) {
-                            let _ = send_packet_to_serial(&mut port, &pkt);
+                            let _ = send_packet_to_serial(port, &pkt);
                             app.param_request_pending = true;
                             app.next_param_id = 1;
                             app.status_message = "Requesting parameters...".to_string();
@@ -588,12 +689,8 @@ fn run(app: &mut App) -> io::Result<()> {
                         let next_id = device.parameters.len() as u8;
                         if next_id < device.parameters_total {
                             drop(mgr);
-                            debug!(
-                                "Requesting parameter {} from device 0x{:02X}",
-                                next_id, dev_addr as u8
-                            );
                             if let Some(pkt) = build_param_read_packet(dev_addr, next_id, 0) {
-                                let _ = send_packet_to_serial(&mut port, &pkt);
+                                let _ = send_packet_to_serial(port, &pkt);
                                 app.param_request_pending = true;
                                 app.next_param_id = next_id + 1;
                                 app.status_message = format!("Requesting parameter {}...", next_id);
@@ -605,47 +702,15 @@ fn run(app: &mut App) -> io::Result<()> {
             }
         }
 
-        if app.device_discovering
-            && app.selected_device.is_none()
-            && now.duration_since(app.last_poll) >= Duration::from_secs(2)
-        {
-            app.last_poll = now;
-            let elapsed = now.duration_since(app.discovery_start).as_secs();
-
-            if !app.discovery_timed_out && elapsed >= DISCOVERY_TIMEOUT_SECS {
-                app.discovery_timed_out = true;
-                warn!(
-                    "No CRSF device responded after {}s. Continuing to retry...",
-                    elapsed
-                );
-            }
-
-            if let Some(ping) = build_ping_packet() {
-                debug!("Sending discovery ping (attempt, {}s elapsed)", elapsed);
-                let _ = send_packet_to_serial(&mut port, &ping);
-            }
-
-            if app.discovery_timed_out {
-                app.status_message = format!("No device responding ({}s) - retrying...", elapsed);
-            } else {
-                app.status_message = format!(
-                    "Discovering devices... ({}/{}s)",
-                    elapsed, DISCOVERY_TIMEOUT_SECS
-                );
-            }
-        }
-
+        // Keyboard
         while event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
-
                 if app.editing {
                     match key.code {
-                        KeyCode::Enter => {
-                            apply_edit(app, &mut port);
-                        }
+                        KeyCode::Enter => apply_edit(app, port),
                         KeyCode::Esc => {
                             app.editing = false;
                             app.edit_buffer.clear();
@@ -653,9 +718,7 @@ fn run(app: &mut App) -> io::Result<()> {
                         KeyCode::Backspace => {
                             app.edit_buffer.pop();
                         }
-                        KeyCode::Char(c) => {
-                            app.edit_buffer.push(c);
-                        }
+                        KeyCode::Char(c) => app.edit_buffer.push(c),
                         _ => {}
                     }
                 } else {
@@ -663,9 +726,7 @@ fn run(app: &mut App) -> io::Result<()> {
                         return Ok(());
                     }
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            return Ok(());
-                        }
+                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                         KeyCode::Down => {
                             let params = app.get_current_parameters();
                             let max = if params.is_empty() {
@@ -681,12 +742,8 @@ fn run(app: &mut App) -> io::Result<()> {
                             let current = app.list_state.selected().unwrap_or(0);
                             app.list_state.select(Some(current.saturating_sub(1)));
                         }
-                        KeyCode::Enter | KeyCode::Char(' ') => {
-                            handle_select(app);
-                        }
-                        KeyCode::Backspace => {
-                            app.go_back();
-                        }
+                        KeyCode::Enter | KeyCode::Char(' ') => handle_select(app),
+                        KeyCode::Backspace => app.go_back(),
                         KeyCode::Char('r') => {
                             if let Some(dev_addr) = app.selected_device {
                                 app.params_loaded = false;
@@ -1111,13 +1168,15 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
-        .format_timestamp_millis()
-        .init();
+    init_logging();
 
     let port_path = env::args()
         .nth(1)
         .unwrap_or_else(|| "/dev/ttyACM0".to_string());
+
+    eprintln!("uf-crsf Parameter TUI");
+    eprintln!("Logging to {}", LOG_FILE);
+    eprintln!();
 
     info!("Starting CRSF Parameter TUI on {}", port_path);
 
@@ -1125,7 +1184,7 @@ fn main() {
 
     if let Err(e) = run(&mut app) {
         error!("Fatal error: {}", e);
-        eprintln!("Error: {}", e);
+        eprintln!("\nFatal error: {}", e);
         std::process::exit(1);
     }
 }
