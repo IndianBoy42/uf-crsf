@@ -129,6 +129,9 @@
 //! timeout detection, and call [`DeviceManager::process_timeouts()`] to generate
 //! retry packets.
 
+#[cfg(feature = "logging")]
+use log::{debug, trace, warn};
+
 use crate::constants;
 use crate::packets::{
     DeviceInformation, DevicePing, Packet, PacketAddress, ParameterChunk,
@@ -746,7 +749,15 @@ impl DeviceManager {
     fn handle_device_info(&mut self, info: &DeviceInformation) {
         if let Ok(device) = Device::from_device_info(info) {
             let addr = device.address;
+            #[cfg(feature = "logging")]
+            debug!(
+                "device: discovered {:?} name='{}' params={} version={}",
+                addr, device.name, device.parameters_total, device.parameter_version
+            );
             let _ = self.devices.insert(addr, device);
+        } else {
+            #[cfg(feature = "logging")]
+            warn!("device: failed to parse DeviceInformation (unknown src_addr 0x{:02X})", info.src_addr);
         }
     }
 
@@ -755,17 +766,40 @@ impl DeviceManager {
         // Identify the device by the source address on the entry frame
         let device_addr = match PacketAddress::try_from(entry.src_addr) {
             Ok(addr) => addr,
-            Err(_) => return,
+            Err(_) => {
+                #[cfg(feature = "logging")]
+                warn!(
+                    "device: ParameterSettingsEntry has unknown src_addr 0x{:02X}",
+                    entry.src_addr
+                );
+                return;
+            }
         };
 
         let Some(device) = self.devices.get_mut(&device_addr) else {
+            #[cfg(feature = "logging")]
+            warn!(
+                "device: ParameterSettingsEntry from unknown device {:?}",
+                device_addr
+            );
             return;
         };
 
         let param = Parameter::from_entry(entry.parameter_number, entry);
+        #[cfg(feature = "logging")]
+        trace!(
+            "device: parameter {:?} id={} name='{}' loaded ({}/{})",
+            device_addr,
+            entry.parameter_number,
+            param.name,
+            device.parameters.len() + 1,
+            device.parameters_total
+        );
         device.add_parameter(param);
 
         if device.parameters.len() >= device.parameters_total as usize {
+            #[cfg(feature = "logging")]
+            debug!("device: {:?} all {} parameters loaded", device_addr, device.parameters_total);
             device.parameters_loaded = true;
         } else {
             // Auto-request the next parameter to keep enumeration moving
@@ -784,10 +818,22 @@ impl DeviceManager {
     fn handle_parameter_chunk(&mut self, chunk: &ParameterChunk) {
         let device_addr = match PacketAddress::try_from(chunk.src_addr) {
             Ok(addr) => addr,
-            Err(_) => return,
+            Err(_) => {
+                #[cfg(feature = "logging")]
+                warn!(
+                    "device: ParameterChunk has unknown src_addr 0x{:02X}",
+                    chunk.src_addr
+                );
+                return;
+            }
         };
 
         if !self.devices.contains_key(&device_addr) {
+            #[cfg(feature = "logging")]
+            warn!(
+                "device: ParameterChunk from unknown device {:?}",
+                device_addr
+            );
             return;
         }
 
@@ -799,18 +845,39 @@ impl DeviceManager {
             .and_then(|d| d.parameters.get(&chunk.param_number))
             .is_some()
         {
+            #[cfg(feature = "logging")]
+            trace!(
+                "device: ignoring stale chunk for already-loaded param {} on {:?}",
+                chunk.param_number, device_addr
+            );
             // Also purge any leftover pending requests for this param
             self.remove_pending_request(device_addr, chunk.param_number);
             return;
         }
 
+        #[cfg(feature = "logging")]
+        trace!(
+            "device: chunk received for param {} chunk={} from {:?}",
+            chunk.param_number, chunk.chunks_remaining, device_addr
+        );
+
         match self.chunk_reassembler.push(chunk.clone()) {
             Ok(Some(entry)) => {
                 // Complete parameter assembled successfully
+                #[cfg(feature = "logging")]
+                debug!(
+                    "device: param {} on {:?} fully reassembled from chunks",
+                    chunk.param_number, device_addr
+                );
                 if let Some(device) = self.devices.get_mut(&device_addr) {
                     let param = Parameter::from_entry(entry.parameter_number, &entry);
                     device.add_parameter(param);
                     if device.parameters.len() >= device.parameters_total as usize {
+                        #[cfg(feature = "logging")]
+                        debug!(
+                            "device: {:?} all {} parameters loaded",
+                            device_addr, device.parameters_total
+                        );
                         device.parameters_loaded = true;
                     } else {
                         // Move on to the next parameter
@@ -823,10 +890,17 @@ impl DeviceManager {
                 // More chunks expected — request the next one
                 self.enqueue_next_chunk(device_addr, chunk);
             }
-            Err(_) => {
+            Err(e) => {
                 // Reassembly failed — reset and let the request be retried
+                #[cfg(feature = "logging")]
+                warn!(
+                    "device: chunk reassembly failed for param {} on {:?}: {:?}",
+                    chunk.param_number, device_addr, e
+                );
                 self.chunk_reassembler.reset();
                 self.remove_pending_request(device_addr, chunk.param_number);
+                // Advance to the next parameter so enumeration doesn't stall.
+                self.enqueue_next_parameter(device_addr);
             }
         }
     }
@@ -880,6 +954,9 @@ impl DeviceManager {
         }
 
         self.last_ping_time = self.current_time;
+
+        #[cfg(feature = "logging")]
+        trace!("device: sending discovery ping from {:?}", self.own_address);
 
         // Create broadcast ping
         let ping = DevicePing::new(PacketAddress::Broadcast as u8, self.own_address as u8).ok()?;
@@ -1230,10 +1307,24 @@ impl DeviceManager {
                 // Timeout occurred
                 if req.retries >= self.config.retry_count {
                     // Max retries reached, remove request
+                    #[cfg(feature = "logging")]
+                    warn!(
+                        "device: param {} chunk={} on {:?} exceeded max retries, dropping",
+                        req.parameter_id, req.chunk_number, req.device_addr
+                    );
                     let _ = self.pending_requests.swap_remove(i);
                     continue;
                 } else {
                     // Retry the request
+                    #[cfg(feature = "logging")]
+                    debug!(
+                        "device: retrying param {} chunk={} on {:?} (retry {}/{})",
+                        req.parameter_id,
+                        req.chunk_number,
+                        req.device_addr,
+                        req.retries + 1,
+                        self.config.retry_count
+                    );
                     if let Some(packet) =
                         self.request_parameter(req.device_addr, req.parameter_id, req.chunk_number)
                     {
