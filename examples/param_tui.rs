@@ -68,12 +68,6 @@ struct Args {
     #[arg(long, default_value = "921600", help = "Serial baud rate")]
     baud: u32,
     #[arg(
-        long = "poll-ms",
-        default_value = "200",
-        help = "Parameter poll interval (ms)"
-    )]
-    poll_interval_ms: u32,
-    #[arg(
         long = "log-file",
         default_value = "/tmp/uf-crsf-tui.log",
         help = "Log file path"
@@ -140,7 +134,7 @@ fn init_logging(log_file: &str) {
         file: Mutex::new(file),
     });
     log::set_logger(Box::leak(logger)).expect("Failed to set logger");
-    log::set_max_level(LevelFilter::Trace);
+    log::set_max_level(LevelFilter::Debug);
     info!("Log started");
 }
 
@@ -157,9 +151,7 @@ struct App {
     connected: bool,
     port_path: String,
     baud_rate: u32,
-    poll_interval_ms: u32,
     params_loaded: bool,
-    last_poll: Instant,
     param_request_pending: bool,
     /// Per-parameter tracking: param_id → entry state.
     param_entries: IndexMap<u8, ParamEntry>,
@@ -168,7 +160,7 @@ struct App {
 }
 
 impl App {
-    fn new(port_path: String, baud_rate: u32, poll_interval_ms: u32) -> Self {
+    fn new(port_path: String, baud_rate: u32) -> Self {
         let config = DeviceManagerConfig {
             timeout_ms: 500,
             retry_count: 3,
@@ -189,9 +181,7 @@ impl App {
             connected: false,
             port_path,
             baud_rate,
-            poll_interval_ms,
             params_loaded: false,
-            last_poll: Instant::now(),
             param_request_pending: false,
             param_entries: IndexMap::new(),
             param_total: 0,
@@ -258,34 +248,6 @@ impl App {
         for id in 0..total {
             self.param_entries.entry(id).or_default();
         }
-    }
-
-    /// Select the next parameter that needs reading.
-    ///
-    /// Priority:
-    ///   1. Params marked `needs_reread` (reread after write)
-    ///   2. Params still `pending` in the initial forward scan
-    ///   3. Skipped params (pending, but earlier retries exhausted once)
-    fn next_param_to_read(&self) -> Option<u8> {
-        // Rereads after write get top priority
-        for (&id, entry) in &self.param_entries {
-            if entry.needs_reread {
-                return Some(id);
-            }
-        }
-        // Forward scan: first pending param
-        for (&id, entry) in &self.param_entries {
-            if entry.pending && entry.retries == 0 {
-                return Some(id);
-            }
-        }
-        // Retry previously-skipped params
-        for (&id, entry) in &self.param_entries {
-            if entry.pending && entry.retries < PARAM_MAX_RETRIES {
-                return Some(id);
-            }
-        }
-        None
     }
 
     /// Count how many parameters have been successfully loaded vs skipped.
@@ -518,20 +480,6 @@ fn build_ping_packet() -> Option<Vec<u8>> {
     Some(buffer[..len].to_vec())
 }
 
-fn build_param_read_packet(device_addr: PacketAddress, param_id: u8, chunk: u8) -> Option<Vec<u8>> {
-    use uf_crsf::packets::ParameterRead;
-    let read = ParameterRead::new(
-        device_addr as u8,
-        PacketAddress::Handset as u8,
-        param_id,
-        chunk,
-    )
-    .ok()?;
-    let mut buffer = [0u8; 64];
-    let len = write_packet_to_buffer(&mut buffer, device_addr, &read).ok()?;
-    Some(buffer[..len].to_vec())
-}
-
 fn build_param_write_packet(
     device_addr: PacketAddress,
     param_id: u8,
@@ -714,15 +662,13 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    app.last_poll = Instant::now();
     app.status_message = format!("Connected to {} @ {} baud", app.port_path, app.baud_rate);
 
     let mut read_buf = [0u8; 512];
     let tick_rate = Duration::from_millis(50);
 
     loop {
-        let now = Instant::now();
-        let time_ms = now.elapsed().as_millis() as u32;
+        let time_ms = start_time().elapsed().as_millis() as u32;
 
         {
             let mut mgr = app.manager.lock().unwrap();
@@ -807,6 +753,7 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
 
                             for pid in newly_loaded {
                                 info!("Param {} loaded (chunked)", pid);
+                                app.param_request_pending = false;
                                 if let Some(ent) = app.param_entries.get_mut(&pid) {
                                     ent.pending = false;
                                     ent.needs_reread = false;
@@ -858,51 +805,42 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
             }
         }
 
-        // Parameter enumeration / reread
-        if app.selected_device.is_some()
-            && !app.param_request_pending
-            && now.duration_since(app.last_poll)
-                >= Duration::from_millis(app.poll_interval_ms as u64)
-        {
-            app.last_poll = now;
-            if let Some(dev_addr) = app.selected_device {
-                if let Some(next_id) = app.next_param_to_read() {
-                    if let Some(pkt) = build_param_read_packet(dev_addr, next_id, 0) {
-                        let (loaded, skipped) = app.param_progress();
-                        let is_reread = app
-                            .param_entries
-                            .get(&next_id)
-                            .is_some_and(|e| e.needs_reread);
-                        let _ = send_packet_to_serial(port, &pkt);
-                        app.param_request_pending = true;
-                        // Only flip params_loaded during initial scan, not rereads
-                        if !is_reread && !app.params_loaded {
-                            app.params_loaded = false;
-                        }
-                        app.status_message = if is_reread {
-                            format!("Rereading parameter {} after write...", next_id)
-                        } else {
-                            format!(
-                                "Requesting parameter {}... ({} loaded, {} skipped)",
-                                next_id, loaded, skipped
-                            )
-                        };
-                    }
-                    continue;
-                } else if !app.params_loaded {
-                    // No more params to read
+        // Parameter enumeration: seed the DeviceManager once; it auto-advances
+        // through chunks and parameters via drain_output above.
+        if let Some(dev_addr) = app.selected_device {
+            let mut mgr = app.manager.lock().unwrap();
+
+            // Check if the device has finished loading
+            let is_loaded = mgr
+                .get_device(dev_addr)
+                .is_some_and(|d| d.parameters_loaded);
+
+            if is_loaded && !app.params_loaded {
+                app.params_loaded = true;
+                let (loaded, skipped) = app.param_progress();
+                app.status_message = if skipped > 0 {
+                    format!(
+                        "Parameters enumerated ({} loaded, {} skipped)",
+                        loaded, skipped
+                    )
+                } else {
+                    format!("All {} parameters loaded", loaded)
+                };
+                info!(
+                    "Parameter enumeration complete: {} loaded, {} skipped",
+                    loaded, skipped
+                );
+            } else if !is_loaded && !app.param_request_pending {
+                // Seed the first (or next reread) request if the manager has
+                // nothing in flight. request_all_parameters is a no-op if
+                // already loaded or already has a pending request queued.
+                if let Some(pkt) = mgr.request_all_parameters(dev_addr) {
+                    drop(mgr);
+                    let _ = send_packet_to_serial(port, &pkt);
+                    app.param_request_pending = true;
                     let (loaded, skipped) = app.param_progress();
-                    app.params_loaded = true;
-                    app.status_message = if skipped > 0 {
-                        format!(
-                            "Parameters enumerated ({} loaded, {} skipped)",
-                            loaded, skipped
-                        )
-                    } else {
-                        format!("All {} parameters loaded", loaded)
-                    };
-                    info!(
-                        "Parameter enumeration complete: {} loaded, {} skipped",
+                    app.status_message = format!(
+                        "Requesting parameters... ({} loaded, {} skipped)",
                         loaded, skipped
                     );
                 }
@@ -955,7 +893,6 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                             if let Some(dev_addr) = app.selected_device {
                                 app.params_loaded = false;
                                 app.param_request_pending = false;
-                                app.last_poll = Instant::now() - Duration::from_secs(1);
                                 app.status_message = "Refreshing parameters...".to_string();
                                 // Reset all entries to pending for a full rescan
                                 for entry in app.param_entries.values_mut() {
@@ -968,6 +905,9 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                                     device.parameters.clear();
                                     device.parameters_loaded = false;
                                 }
+                                // Stale pending chunk requests will be cleaned up by
+                                // process_timeouts; new enumeration re-seeds via
+                                // request_all_parameters once param_request_pending is false.
                             }
                         }
                         _ => {}
@@ -1100,13 +1040,22 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
                 Ok(()) => {
                     app.status_message =
                         format!("Sent write for param {} ({} bytes)", pid, data.len());
-                    // Schedule a reread of just this parameter to confirm the new value
-                    if let Some(entry) = app.param_entries.get_mut(&pid) {
-                        entry.needs_reread = true;
-                        entry.pending = true;
+                    // Request a reread of this parameter to confirm the new value.
+                    // We send it immediately via the DeviceManager so chunk sequencing
+                    // is handled consistently.
+                    if let Some(reread_pkt) = app
+                        .manager
+                        .lock()
+                        .unwrap()
+                        .request_parameter(dev_addr, pid, 0)
+                    {
+                        let _ = send_packet_to_serial(port, &reread_pkt);
+                        app.param_request_pending = true;
+                        if let Some(entry) = app.param_entries.get_mut(&pid) {
+                            entry.pending = true;
+                            entry.needs_reread = true;
+                        }
                     }
-                    app.param_request_pending = false;
-                    app.last_poll = Instant::now();
                 }
                 Err(e) => {
                     app.status_message = format!("Write error: {}", e);
@@ -1308,11 +1257,11 @@ fn main() {
     eprintln!();
 
     info!(
-        "Starting CRSF Parameter TUI on {} @ {} baud (poll {}ms, timeout {}s)",
-        args.port, args.baud, args.poll_interval_ms, args.discovery_timeout
+        "Starting CRSF Parameter TUI on {} @ {} baud (timeout {}s)",
+        args.port, args.baud, args.discovery_timeout
     );
 
-    let mut app = App::new(args.port, args.baud, args.poll_interval_ms);
+    let mut app = App::new(args.port, args.baud);
 
     if let Err(e) = run(&mut app, args.discovery_timeout) {
         error!("Fatal error: {}", e);
