@@ -93,7 +93,7 @@ impl MockElrsDevice {
 
         // Parameter 1: Packet Rate
         // TextSelection represents a choice from a list. The options are semi-colon separated strings.
-        let options = heapless::String::<128>::try_from(
+        let options = heapless::String::<512>::try_from(
             "50Hz(-117dBm);150Hz(-112dBm);250Hz(-108dBm);500Hz(-105dBm)",
         )
         .unwrap();
@@ -157,7 +157,7 @@ impl MockElrsDevice {
 
         // Parameter 3: Switch Mode
         let options =
-            heapless::String::<128>::try_from("No Acks;1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16")
+            heapless::String::<512>::try_from("No Acks;1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16")
                 .unwrap();
         let unit = heapless::String::<128>::try_from("").unwrap();
         parameters
@@ -213,7 +213,7 @@ impl MockElrsDevice {
 
         // Parameter 5: Telemetry Rate
         let options =
-            heapless::String::<128>::try_from("Off;4Hz;8Hz;16Hz;32Hz;64Hz;128Hz").unwrap();
+            heapless::String::<512>::try_from("Off;4Hz;8Hz;16Hz;32Hz;64Hz;128Hz").unwrap();
         let unit = heapless::String::<128>::try_from("Hz").unwrap();
         parameters
             .push(

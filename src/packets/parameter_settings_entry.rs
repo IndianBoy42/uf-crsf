@@ -5,7 +5,10 @@ use heapless::Vec;
 
 const MAX_STRING_LEN: usize = 128;
 const MAX_CHILDREN: usize = 32;
-const MAX_OPTIONS: usize = 128;
+// Real ELRS devices send options strings well over 200 bytes (e.g. "Packet Rate" has
+// ~214 bytes of semicolon-delimited choices). Use 512 to cover the theoretical maximum
+// of MAX_CHUNKS * MAX_CHUNK_PAYLOAD_SIZE minus header overhead.
+const MAX_OPTIONS: usize = 512;
 
 /// Maximum bytes of the entry payload that can fit in a single chunk.
 ///
@@ -664,6 +667,19 @@ impl ParameterSettingsEntry {
         Ok((string, null_pos + 1))
     }
 
+    fn parse_options_string(
+        data: &[u8],
+    ) -> Result<(String<MAX_OPTIONS>, usize), CrsfParsingError> {
+        let null_pos = Self::find_null(data)?.ok_or(CrsfParsingError::InvalidPayload)?;
+        let str_slice = &data[..null_pos];
+        let s = core::str::from_utf8(str_slice).map_err(|_| CrsfParsingError::InvalidPayload)?;
+        let mut string = String::new();
+        string
+            .push_str(s)
+            .map_err(|_| CrsfParsingError::InvalidPayloadLength)?;
+        Ok((string, null_pos + 1))
+    }
+
     /// Helper function to find end marker (0xFF) in a list.
     fn find_end_marker(data: &[u8]) -> Option<usize> {
         data.iter().position(|&b| b == 0xFF)
@@ -1034,7 +1050,7 @@ impl CrsfPacket for ParameterSettingsEntry {
                     if data.len() < offset + 4 {
                         return Err(CrsfParsingError::InvalidPayloadLength);
                     }
-                    let (options, options_end) = Self::parse_string(&data[offset..])?;
+                    let (options, options_end) = Self::parse_options_string(&data[offset..])?;
                     offset += options_end;
                     if data.len() < offset + 4 {
                         return Err(CrsfParsingError::InvalidPayloadLength);
@@ -1969,5 +1985,42 @@ mod tests {
             panic!("Expected String data");
         }
         assert!(reassembler.is_complete());
+    }
+
+    #[test]
+    fn test_long_text_selection_options_over_128_chars() {
+        // Real ELRS "Packet Rate" options exceed 128 bytes — ensure they parse without error.
+        // Total options string is ~214 chars, well over the old MAX_OPTIONS=128 limit.
+        let long_options =
+            "D50Hz(-112dBm);25Hz(-123dBm);50Hz(-120dBm);100Hz(-117dBm);\
+             100Hz Full(-112dBm);200Hz(-111dBm);200Hz(-111dBm);\
+             200Hz Full(-111dBm);250Hz(-111dBm);K1000 Full(-101dBm)";
+        assert!(
+            long_options.len() > 128,
+            "options must be longer than old limit to be a useful regression test"
+        );
+        let options_str = String::<MAX_OPTIONS>::try_from(long_options).unwrap();
+        let unit_str = String::<MAX_STRING_LEN>::try_from("").unwrap();
+
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x09, "Packet Rate")
+            .unwrap()
+            .add_data(ParameterData::TextSelection {
+                options: options_str,
+                value: 9,
+                min: 0,
+                max: 9,
+                default: 0,
+                unit: unit_str,
+            });
+
+        let mut buf = [0u8; 512];
+        let len = entry.to_bytes(&mut buf).unwrap();
+        let parsed = ParameterSettingsEntry::from_bytes(&buf[..len]).unwrap();
+        if let Some(ParameterData::TextSelection { options, value, .. }) = &parsed.data {
+            assert_eq!(options.as_str(), long_options);
+            assert_eq!(*value, 9);
+        } else {
+            panic!("Expected TextSelection data");
+        }
     }
 }
