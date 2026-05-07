@@ -855,6 +855,16 @@ impl DeviceManager {
             return;
         }
 
+        // If the reassembler is mid-assembly for a different parameter, that sequence
+        // was interrupted. Remove stale pending requests for the abandoned parameter so
+        // the gap-scan in enqueue_next_parameter can skip over it cleanly.
+        if !self.chunk_reassembler.is_idle()
+            && self.chunk_reassembler.param_number() != chunk.param_number
+        {
+            let stale_id = self.chunk_reassembler.param_number();
+            self.remove_pending_request(device_addr, stale_id);
+        }
+
         #[cfg(feature = "logging")]
         trace!(
             "device: chunk received for param {} chunk={} from {:?}",
@@ -891,7 +901,8 @@ impl DeviceManager {
                 self.enqueue_next_chunk(device_addr, chunk);
             }
             Err(e) => {
-                // Reassembly failed — reset and let the request be retried
+                // Reassembly failed — insert a placeholder so this ID is marked as
+                // visited and enumeration advances past it without stalling.
                 #[cfg(feature = "logging")]
                 warn!(
                     "device: chunk reassembly failed for param {} on {:?}: {:?}",
@@ -899,7 +910,21 @@ impl DeviceManager {
                 );
                 self.chunk_reassembler.reset();
                 self.remove_pending_request(device_addr, chunk.param_number);
-                // Advance to the next parameter so enumeration doesn't stall.
+                // Insert a stub so enqueue_next_parameter's gap-scan skips this ID.
+                if let Some(device) = self.devices.get_mut(&device_addr) {
+                    let stub = Parameter {
+                        id: chunk.param_number,
+                        parent: 0,
+                        name: String::new(),
+                        hidden: true,
+                        data: None,
+                    };
+                    device.add_parameter(stub);
+                    if device.parameters.len() >= device.parameters_total as usize {
+                        device.parameters_loaded = true;
+                        return;
+                    }
+                }
                 self.enqueue_next_parameter(device_addr);
             }
         }
@@ -1258,7 +1283,9 @@ impl DeviceManager {
             return;
         }
 
-        let next_param_id = device.parameters.len() as u8;
+        let next_param_id = (0..device.parameters_total)
+            .find(|id| !device.parameters.contains_key(id))
+            .unwrap_or(device.parameters_total);
 
         // Don't re-request if already pending
         if self

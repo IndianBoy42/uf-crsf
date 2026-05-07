@@ -134,7 +134,7 @@ fn init_logging(log_file: &str) {
         file: Mutex::new(file),
     });
     log::set_logger(Box::leak(logger)).expect("Failed to set logger");
-    log::set_max_level(LevelFilter::Debug);
+    log::set_max_level(LevelFilter::Trace);
     info!("Log started");
 }
 
@@ -687,7 +687,7 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                 for packet_result in packets {
                     match packet_result {
                         Ok(ref packet) => {
-                            debug!("Parsed packet: {:?}", packet);
+                            debug!("Parsed packet: {:x?}", packet);
 
                             // Pre-extract info that needs &mut app before we borrow mgr
                             match packet {

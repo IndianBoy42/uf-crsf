@@ -1130,6 +1130,81 @@ impl CrsfPacket for ParameterSettingsEntry {
                     }
                     ParameterData::Vtx { data: vtx_data }
                 }
+                // Legacy integer types (deprecated; promoted to Float with decimal_point=0).
+                // Format: value(N) | min(N) | max(N) | default(N) where N is the byte width.
+                // A trailing step byte is consumed if present but defaulted to 1.
+                ParameterDataType::Uint8 | ParameterDataType::Int8 => {
+                    if data.len() < offset + 4 {
+                        return Err(CrsfParsingError::InvalidPayloadLength);
+                    }
+                    let (value, min, max, default) = if matches!(param_type, ParameterDataType::Int8) {
+                        (
+                            data[offset] as i8 as i32,
+                            data[offset + 1] as i8 as i32,
+                            data[offset + 2] as i8 as i32,
+                            data[offset + 3] as i8 as i32,
+                        )
+                    } else {
+                        (
+                            data[offset] as i32,
+                            data[offset + 1] as i32,
+                            data[offset + 2] as i32,
+                            data[offset + 3] as i32,
+                        )
+                    };
+                    let step_size = if data.len() > offset + 4 { data[offset + 4] as i32 } else { 1 };
+                    ParameterData::Float {
+                        value,
+                        min,
+                        max,
+                        default,
+                        decimal_point: 0,
+                        step_size,
+                        unit: String::new(),
+                    }
+                }
+                ParameterDataType::Uint16 | ParameterDataType::Int16 => {
+                    if data.len() < offset + 8 {
+                        return Err(CrsfParsingError::InvalidPayloadLength);
+                    }
+                    let read_i16 = |i: usize| i16::from_be_bytes([data[offset + i], data[offset + i + 1]]);
+                    let (value, min, max, default) = if matches!(param_type, ParameterDataType::Int16) {
+                        (read_i16(0) as i32, read_i16(2) as i32, read_i16(4) as i32, read_i16(6) as i32)
+                    } else {
+                        let read_u16 = |i: usize| u16::from_be_bytes([data[offset + i], data[offset + i + 1]]);
+                        (read_u16(0) as i32, read_u16(2) as i32, read_u16(4) as i32, read_u16(6) as i32)
+                    };
+                    let step_size = if data.len() > offset + 8 { data[offset + 8] as i32 } else { 1 };
+                    ParameterData::Float {
+                        value,
+                        min,
+                        max,
+                        default,
+                        decimal_point: 0,
+                        step_size,
+                        unit: String::new(),
+                    }
+                }
+                ParameterDataType::Uint32 | ParameterDataType::Int32 => {
+                    if data.len() < offset + 16 {
+                        return Err(CrsfParsingError::InvalidPayloadLength);
+                    }
+                    let read_i32 = |i: usize| i32::from_be_bytes([data[offset + i], data[offset + i + 1], data[offset + i + 2], data[offset + i + 3]]);
+                    let value = read_i32(0);
+                    let min = read_i32(4);
+                    let max = read_i32(8);
+                    let default = read_i32(12);
+                    let step_size = if data.len() > offset + 16 { data[offset + 16] as i32 } else { 1 };
+                    ParameterData::Float {
+                        value,
+                        min,
+                        max,
+                        default,
+                        decimal_point: 0,
+                        step_size,
+                        unit: String::new(),
+                    }
+                }
                 _ => return Err(CrsfParsingError::InvalidPayload),
             })
         } else {

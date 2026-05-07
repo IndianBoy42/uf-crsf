@@ -1,8 +1,10 @@
-//! Parse a hex byte array as a CRSF packet.
+//! Parse a hex or decimal byte array as a CRSF packet.
 //!
 //! Usage:
 //!   cargo run --example parse_hex -- "C8 06 2C EE EA 02 00 9B"
 //!   cargo run --example parse_hex -- "[C8, 06, 2C, EE, EA, 02, 00, 9B]"
+//!   cargo run --example parse_hex -- --dec "200 6 44 238 234 2 0 155"
+//!   cargo run --example parse_hex -- --dec "[200, 6, 44, 238, 234, 2, 0, 155]"
 //!   cargo run --example parse_hex --features=logging -- "C8 06 2C ..."
 //!
 //! Set RUST_LOG=debug (or trace) to see the parsing pipeline logs:
@@ -14,13 +16,17 @@ use uf_crsf::CrsfStreamError;
 
 /// CLI to parse arbitrary CRSF byte arrays.
 #[derive(Parser)]
-#[command(name = "parse_hex", about = "Parse CRSF hex byte array")]
+#[command(name = "parse_hex", about = "Parse CRSF byte array (hex by default)")]
 struct Args {
-    /// Hex-encoded bytes, e.g. "C8 06 2C EE EA 02 00 9B" or "[C8, 06, ...]"
-    hex: String,
+    /// Bytes to parse — hex by default, decimal when --dec is set
+    bytes: String,
+
+    /// Interpret input as decimal values (0-255) instead of hex
+    #[arg(long)]
+    dec: bool,
 }
 
-fn parse_hex(input: &str) -> Result<Vec<u8>, String> {
+fn parse_bytes(input: &str, radix: u32) -> Result<Vec<u8>, String> {
     let stripped = input
         .trim()
         .trim_start_matches('[')
@@ -33,8 +39,8 @@ fn parse_hex(input: &str) -> Result<Vec<u8>, String> {
         if clean.is_empty() {
             continue;
         }
-        let b = u8::from_str_radix(clean, 16)
-            .map_err(|e| format!("invalid hex byte '{clean}': {e}"))?;
+        let b = u8::from_str_radix(clean, radix)
+            .map_err(|e| format!("invalid byte '{clean}': {e}"))?;
         bytes.push(b);
     }
 
@@ -51,8 +57,9 @@ fn main() {
         .init();
 
     let args = Args::parse();
-    let bytes = parse_hex(&args.hex).unwrap_or_else(|e| {
-        eprintln!("Error parsing hex input: {e}");
+    let radix = if args.dec { 10 } else { 16 };
+    let bytes = parse_bytes(&args.bytes, radix).unwrap_or_else(|e| {
+        eprintln!("Error parsing input: {e}");
         std::process::exit(1);
     });
 
