@@ -1,4 +1,4 @@
-use crate::constants;
+use crate::constants::{self, CRSF_SYNC_BYTE};
 use crate::error::CrsfParsingError;
 use crate::parser::RawCrsfPacket;
 use crc;
@@ -321,7 +321,7 @@ pub enum PacketAddress {
 
 pub fn write_packet_to_buffer<T: CrsfPacket>(
     buffer: &mut [u8],
-    dest: PacketAddress,
+    _: PacketAddress,
     packet: &T,
 ) -> Result<usize, CrsfParsingError> {
     const MAX_PAYLOAD_SIZE: usize = constants::CRSF_MAX_PACKET_SIZE - 4;
@@ -338,7 +338,7 @@ pub fn write_packet_to_buffer<T: CrsfPacket>(
     // length byte = 2 (type + crc) + payload_size
     let length_byte = (payload_size + 2) as u8;
 
-    buffer[0] = dest as u8;
+    buffer[0] = CRSF_SYNC_BYTE;
     buffer[1] = length_byte;
     buffer[2] = T::PACKET_TYPE as u8;
     buffer[3..3 + payload_size].copy_from_slice(&payload_buf[..payload_size]);

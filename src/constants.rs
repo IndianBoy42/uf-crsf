@@ -87,3 +87,5 @@ pub const CRSF_MAX_PACKET_SIZE: usize = 64;
 /// [`CrsfStreamError::InvalidPacketLength`] when a packet falls outside
 /// this range.
 pub const CRSF_MIN_PACKET_SIZE: usize = 4;
+
+pub const CRSF_SYNC_BYTE: u8 = 0xC8;
