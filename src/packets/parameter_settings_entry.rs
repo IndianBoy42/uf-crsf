@@ -60,7 +60,9 @@ impl ParameterChunk {
         let chunks_remaining = data[3];
         let mut payload: Vec<u8, MAX_CHUNK_PAYLOAD_SIZE> = Vec::new();
         for &b in &data[4..] {
-            payload.push(b).map_err(|_| CrsfParsingError::InvalidPayloadLength)?;
+            payload
+                .push(b)
+                .map_err(|_| CrsfParsingError::InvalidPayloadLength)?;
         }
         Ok(Self {
             dst_addr,
@@ -1502,8 +1504,8 @@ mod tests {
         let data: [u8; 10] = [
             0xEA, 0xEE, // dst, src
             0x05, 0x00, // param_number=5, chunks_remaining=0
-            0x00,       // parent=0
-            0x08,       // data_type=Float
+            0x00, // parent=0
+            0x08, // data_type=Float
             0x50, 0x6F, 0x77, 0x00, // "Pow\0"
         ];
         let chunk = ParameterChunk::from_bytes(&data).unwrap();
@@ -1511,7 +1513,10 @@ mod tests {
         assert_eq!(chunk.src_addr, 0xEE);
         assert_eq!(chunk.param_number, 5);
         assert_eq!(chunk.chunks_remaining, 0);
-        assert_eq!(chunk.payload.as_slice(), &[0x00, 0x08, 0x50, 0x6F, 0x77, 0x00]);
+        assert_eq!(
+            chunk.payload.as_slice(),
+            &[0x00, 0x08, 0x50, 0x6F, 0x77, 0x00]
+        );
     }
 
     #[test]
@@ -1532,7 +1537,7 @@ mod tests {
         data.push(0xEE).unwrap(); // src
         data.push(0x01).unwrap(); // param_number
         data.push(0x00).unwrap(); // chunks_remaining
-        // Fill payload with MAX_CHUNK_PAYLOAD_SIZE + 1 bytes
+                                  // Fill payload with MAX_CHUNK_PAYLOAD_SIZE + 1 bytes
         for _ in 0..=MAX_CHUNK_PAYLOAD_SIZE {
             data.push(0xAA).unwrap();
         }
@@ -1580,10 +1585,7 @@ mod tests {
         assert_eq!(assembled.parameter_number, 2);
         assert_eq!(assembled.name, "Test");
         assert!(!assembled.is_hidden());
-        assert_eq!(
-            assembled.get_data_type().unwrap(),
-            ParameterDataType::Float
-        );
+        assert_eq!(assembled.get_data_type().unwrap(), ParameterDataType::Float);
         if let Some(ParameterData::Float { value, unit, .. }) = &assembled.data {
             assert_eq!(*value, 2000);
             assert_eq!(*unit, "mW");
@@ -1825,13 +1827,15 @@ mod tests {
         let mut reassembler = ParameterChunkReassembler::new();
         let c0 = ParameterChunk::from_bytes(&chunk0_buf[..split]).unwrap();
         assert!(reassembler.push(c0).unwrap().is_none());
-        let c1 =
-            ParameterChunk::from_bytes(&chunk1_buf[..4 + remaining]).unwrap();
+        let c1 = ParameterChunk::from_bytes(&chunk1_buf[..4 + remaining]).unwrap();
         let result = reassembler.push(c1).unwrap();
         assert!(result.is_some());
 
         let chunked = result.unwrap();
-        assert_eq!(direct, chunked, "Chunked reassembly must match direct parse");
+        assert_eq!(
+            direct, chunked,
+            "Chunked reassembly must match direct parse"
+        );
     }
 
     #[test]
@@ -1892,7 +1896,10 @@ mod tests {
         assert_eq!(chunk.src_addr, 0xEE);
         assert_eq!(chunk.param_number, 10);
         assert_eq!(chunk.chunks_remaining, 3);
-        assert_eq!(chunk.payload.as_slice(), &[0x01, 0x0B, 0x52, 0x4F, 0x4F, 0x54]);
+        assert_eq!(
+            chunk.payload.as_slice(),
+            &[0x01, 0x0B, 0x52, 0x4F, 0x4F, 0x54]
+        );
     }
 
     #[test]

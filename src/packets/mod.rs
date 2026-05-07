@@ -148,6 +148,12 @@ pub enum Packet {
     ParameterRead(ParameterRead),
     ParameterWrite(ParameterWrite),
     ParameterSettingsEntry(ParameterSettingsEntry),
+    /// Partial/chunked parameter entry that requires reassembly.
+    ///
+    /// When a parameter's entry payload exceeds 56 bytes, the device splits
+    /// it across multiple 0x2B frames. Use [`ParameterChunkReassembler`]
+    /// to collect all chunks and produce a complete [`ParameterSettingsEntry`].
+    ParameterChunk(ParameterChunk),
     ElrsStatus(ElrsStatus),
     MspRequest(MspPacket),
     MspResponse(MspPacket),
@@ -161,7 +167,12 @@ impl Packet {
 
         let data = raw_packet.payload();
         #[cfg(feature = "logging")]
-        trace!("parse: type=0x{:02X} ({:?}), payload_len={}", packet_type as u8, packet_type, data.len());
+        trace!(
+            "parse: type=0x{:02X} ({:?}), payload_len={}",
+            packet_type as u8,
+            packet_type,
+            data.len()
+        );
         match packet_type {
             LinkStatistics::PACKET_TYPE => {
                 Ok(Self::LinkStatistics(LinkStatistics::from_bytes(data)?))
@@ -211,9 +222,19 @@ impl Packet {
             ParameterWrite::PACKET_TYPE => {
                 Ok(Self::ParameterWrite(ParameterWrite::from_bytes(data)?))
             }
-            ParameterSettingsEntry::PACKET_TYPE => Ok(Self::ParameterSettingsEntry(
-                ParameterSettingsEntry::from_bytes(data)?,
-            )),
+            ParameterSettingsEntry::PACKET_TYPE => {
+                // Try full-entry parsing first (single-chunk parameters).
+                // If the entry payload exceeds 56 bytes (chunked), from_bytes
+                // will fail because the type-specific data is truncated.
+                // Fall back to chunk parsing in that case.
+                match ParameterSettingsEntry::from_bytes(data) {
+                    Ok(entry) => Ok(Self::ParameterSettingsEntry(entry)),
+                    Err(_) => {
+                        // Partial/chunked frame — parse as a chunk for reassembly
+                        Ok(Self::ParameterChunk(ParameterChunk::from_bytes(data)?))
+                    }
+                }
+            }
             ElrsStatus::PACKET_TYPE => Ok(Self::ElrsStatus(ElrsStatus::from_bytes(data)?)),
             PacketType::MspRequest => Ok(Self::MspRequest(MspPacket::from_bytes(data)?)),
             PacketType::MspResponse => Ok(Self::MspResponse(MspPacket::from_bytes(data)?)),
@@ -222,7 +243,12 @@ impl Packet {
             )),
             _ => {
                 #[cfg(feature = "logging")]
-                warn!("parse: unhandled packet type 0x{:02X} ({:?}), payload_len={}", packet_type as u8, packet_type, data.len());
+                warn!(
+                    "parse: unhandled packet type 0x{:02X} ({:?}), payload_len={}",
+                    packet_type as u8,
+                    packet_type,
+                    data.len()
+                );
                 Ok(Packet::NotImplemented(
                     packet_type,
                     raw_packet.payload().len(),
