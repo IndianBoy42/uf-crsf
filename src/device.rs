@@ -34,10 +34,12 @@
 //! Discover TX module parameters, display UI, write configuration:
 //!
 //! ```no_run
-//! use uf_crsf::device::{DeviceManager, DeviceManagerConfig};
-//! use uf_crsf::parser::CrsfParser;
-//! use uf_crsf::packets::{Packet, PacketAddress};
-//!
+//! # use uf_crsf::device::{DeviceManager, DeviceManagerConfig};
+//! # use uf_crsf::parser::CrsfParser;
+//! # use uf_crsf::packets::{Packet, PacketAddress};
+//! # fn read_from_uart() -> Vec<u8> { vec![] }
+//! # fn current_time_ms() -> u32 { 0 }
+//! # fn write_to_uart<T>(_: &T) {}
 //! // Initialize manager
 //! let config = DeviceManagerConfig::default();
 //! let mut manager = DeviceManager::new(config).with_address(PacketAddress::Handset);
@@ -76,6 +78,8 @@
 //! ```no_run
 //! # use uf_crsf::device::DeviceManager;
 //! # use uf_crsf::parser::CrsfParser;
+//! # fn get_monotonic_ms() -> u32 { 0 }
+//! # fn uart_write_blocking<T>(_: &T) {}
 //! // In your main loop or UART ISR
 //! static mut RX_BUFFER: [u8; 128] = [0; 128];
 //! static mut RX_LEN: usize = 0;
@@ -517,6 +521,11 @@ struct PendingRequest {
 /// # use uf_crsf::device::{DeviceManager, DeviceManagerConfig};
 /// # use uf_crsf::parser::CrsfParser;
 /// # use uf_crsf::packets::PacketAddress;
+/// # fn uart_read() -> Vec<u8> { vec![] }
+/// # fn current_time_ms() -> u32 { 0 }
+/// # fn uart_write<T>(_: &T) {}
+/// # fn sleep_ms(_: u64) {}
+/// # fn display_parameters<T>(_: &T) {}
 /// let mut manager = DeviceManager::default().with_address(PacketAddress::Handset);
 /// let mut parser = CrsfParser::new();
 ///
@@ -545,19 +554,21 @@ struct PendingRequest {
 ///         uart_write(&retry);
 ///     }
 ///
-///     // 6. Once device discovered, request its parameters
-///     for addr in manager.devices() {
-///         if let Some(req) = manager.request_all_parameters(addr) {
-///             uart_write(&req);
-///         }
-///     }
-///
-///     // 7. Check parameter load completion
-///     for addr in manager.devices() {
-///         if let Some(device) = manager.get_device(addr) {
-///             if device.parameters_loaded {
-///                 // Display parameters or apply configuration
-///                 display_parameters(device);
+    ///     // 6. Once device discovered, request its parameters
+    ///     let device_addrs: heapless::Vec<_, 8> = manager.devices().collect();
+    ///     for addr in device_addrs {
+    ///         if let Some(req) = manager.request_all_parameters(addr) {
+    ///             uart_write(&req);
+    ///         }
+    ///     }
+    ///
+    ///     // 7. Check parameter load completion
+    ///     let check_addrs: heapless::Vec<_, 8> = manager.devices().collect();
+    ///     for addr in check_addrs {
+    ///         if let Some(device) = manager.get_device(addr) {
+    ///             if device.parameters_loaded {
+    ///                 // Display parameters or apply configuration
+    ///                 display_parameters(device);
 ///             }
 ///         }
 ///     }
@@ -667,6 +678,8 @@ impl DeviceManager {
     ///
     /// ```no_run
     /// # use uf_crsf::device::DeviceManager;
+    /// # fn get_monotonic_ms() -> u32 { 0 }
+    /// # fn sleep_ms(_: u64) {}
     /// let mut manager = DeviceManager::default();
     ///
     /// // In your main loop or ISR
@@ -717,6 +730,7 @@ impl DeviceManager {
     /// # use uf_crsf::device::DeviceManager;
     /// # use uf_crsf::parser::CrsfParser;
     /// # use uf_crsf::packets::Packet;
+    /// # fn uart_read() -> Vec<u8> { vec![] }
     /// let mut manager = DeviceManager::default();
     /// let mut parser = CrsfParser::new();
     ///
@@ -954,6 +968,8 @@ impl DeviceManager {
     /// ```no_run
     /// # use uf_crsf::device::DeviceManager;
     /// # use uf_crsf::packets::PacketAddress;
+    /// # fn get_monotonic_ms() -> u32 { 0 }
+    /// # fn uart_write<T>(_: &T) {}
     /// let mut manager = DeviceManager::default().with_address(PacketAddress::Handset);
     ///
     /// // In your main loop
@@ -1021,6 +1037,7 @@ impl DeviceManager {
     /// ```no_run
     /// # use uf_crsf::device::DeviceManager;
     /// # use uf_crsf::packets::PacketAddress;
+    /// # fn uart_write<T>(_: &T) {}
     /// let mut manager = DeviceManager::default();
     /// let tx_addr = PacketAddress::Transmitter;
     ///
@@ -1134,6 +1151,7 @@ impl DeviceManager {
     /// ```no_run
     /// # use uf_crsf::device::DeviceManager;
     /// # use uf_crsf::packets::PacketAddress;
+    /// # fn uart_write<T>(_: &T) {}
     /// let mut manager = DeviceManager::default();
     /// let tx_addr = PacketAddress::Transmitter;
     ///
@@ -1189,6 +1207,7 @@ impl DeviceManager {
     /// ```no_run
     /// # use uf_crsf::device::DeviceManager;
     /// # use uf_crsf::packets::PacketAddress;
+    /// # fn uart_write<T>(_: &T) {}
     /// let mut manager = DeviceManager::default();
     ///
     /// // In your main loop

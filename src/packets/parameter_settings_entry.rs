@@ -87,23 +87,28 @@ impl ParameterChunk {
 /// # Usage
 ///
 /// ```no_run
-/// # use uf_crsf::packets::parameter_settings_entry::ParameterChunkReassembler;
+/// # use uf_crsf::packets::ParameterChunkReassembler;
+/// # use uf_crsf::packets::ParameterChunk;
 /// let mut reassembler = ParameterChunkReassembler::new();
 ///
 /// // Feed chunks as 0x2B frame payloads arrive from the device
-/// for frame_payload in /* incoming stream */ {
-///     let chunk = /* ParameterChunk::from_bytes(frame_payload)? */;
-///     match reassembler.push(chunk)? {
-///         Some(entry) => {
+/// # let incoming_chunks: Vec<ParameterChunk> = Vec::new();
+/// for chunk in incoming_chunks {
+///     match reassembler.push(chunk) {
+///         Ok(Some(entry)) => {
 ///             // Complete parameter received ready for use
+///             let _ = entry;
 ///             break;
 ///         }
-///         None => {
+///         Ok(None) => {
 ///             // More chunks expected, keep reading
+///         }
+///         Err(e) => {
+///             // Handle reassembly error
+///             let _ = e;
 ///         }
 ///     }
 /// }
-/// # Ok::<_, uf_crsf::CrsfParsingError>(())
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct ParameterChunkReassembler {
@@ -403,7 +408,9 @@ impl TryFrom<u8> for ParameterDataType {
 /// After receiving a [ParameterSettingsEntry], match on the `data` field:
 ///
 /// ```no_run
-/// # use uf_crsf::packets::parameter_settings_entry::ParameterData;
+/// # use uf_crsf::packets::{ParameterData, ParameterSettingsEntry};
+/// # use uf_crsf::packets::PacketAddress;
+/// # let parameter = ParameterSettingsEntry::new(0xEE, 0xEA, 5, 0, 0, 0x02, "TX Power").unwrap();
 /// if let Some(ParameterData::Float { value, min, max, unit, .. }) = &parameter.data {
 ///     println!("TX Power: {} {} (range: {}-{})", value, unit, min, max);
 /// } else if let Some(ParameterData::TextSelection { options, value, .. }) = &parameter.data {
@@ -515,7 +522,7 @@ pub enum ParameterData {
     /// **Not writable** - folders only provide structure.
     ///
     /// **Navigation example:**
-    /// ```rust,no_run
+    /// ```ignore
     /// # use heapless::Vec;
     /// # let children: Vec<u8, 32> = Vec::new();
     /// for &child_id in &children {

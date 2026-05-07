@@ -37,7 +37,8 @@ use core::mem::size_of;
 /// # Example
 ///
 /// ```no_run
-/// # use uf_crsf::packets::parameter_read::ParameterRead;
+/// # use uf_crsf::packets::ParameterRead;
+/// # use uf_crsf::packets::CrsfPacket;
 /// use uf_crsf::packets::PacketAddress;
 ///
 /// // Request parameter 5 (TX Power) from the transmitter

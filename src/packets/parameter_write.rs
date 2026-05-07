@@ -46,7 +46,8 @@ const MAX_DATA_SIZE: usize = 32;
 /// # Example
 ///
 /// ```no_run
-/// # use uf_crsf::packets::parameter_write::ParameterWrite;
+/// # use uf_crsf::packets::ParameterWrite;
+/// # use uf_crsf::packets::CrsfPacket;
 /// use uf_crsf::packets::PacketAddress;
 ///
 /// // Write TX Power parameter (ID 5, Float type) to 2000 mW

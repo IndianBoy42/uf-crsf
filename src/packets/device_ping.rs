@@ -36,7 +36,8 @@ use crate::CrsfParsingError;
 /// # Example
 ///
 /// ```no_run
-/// # use uf_crsf::packets::device_ping::DevicePing;
+/// # use uf_crsf::packets::DevicePing;
+/// # use uf_crsf::packets::CrsfPacket;
 /// use uf_crsf::packets::PacketAddress;
 ///
 /// // Broadcast discovery ping to find all devices
