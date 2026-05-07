@@ -30,10 +30,35 @@ use ratatui::{
     Frame, Terminal,
 };
 
+use indexmap::IndexMap;
 use serialport::SerialPort;
 use uf_crsf::device::{DeviceManager, DeviceManagerConfig, Parameter};
 use uf_crsf::packets::{write_packet_to_buffer, Packet, PacketAddress, ParameterData};
 use uf_crsf::parser::CrsfParser;
+
+/// Max retries for a single parameter read before giving up.
+const PARAM_MAX_RETRIES: u8 = 3;
+
+/// Per-parameter tracking state for the enumeration and reread scheduler.
+#[derive(Debug, Clone)]
+struct ParamEntry {
+    /// How many consecutive read errors for this param.
+    retries: u8,
+    /// True if this param still needs to be read (initial scan or reread after write).
+    pending: bool,
+    /// Set after a successful write to signal that we need to reread the current value.
+    needs_reread: bool,
+}
+
+impl Default for ParamEntry {
+    fn default() -> Self {
+        Self {
+            retries: 0,
+            pending: true,
+            needs_reread: false,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "uf-crsf-param-tui", about = "CRSF/ELRS parameter browser TUI")]
@@ -136,9 +161,10 @@ struct App {
     params_loaded: bool,
     last_poll: Instant,
     param_request_pending: bool,
-    param_read_retries: u8,
-    param_skip_count: u8,
-    next_param_id: u8,
+    /// Per-parameter tracking: param_id → entry state.
+    param_entries: IndexMap<u8, ParamEntry>,
+    /// Total number of parameters the device reports (`parameters_total` from DeviceInformation).
+    param_total: u8,
 }
 
 impl App {
@@ -167,9 +193,8 @@ impl App {
             params_loaded: false,
             last_poll: Instant::now(),
             param_request_pending: false,
-            param_read_retries: 0,
-            param_skip_count: 0,
-            next_param_id: 0,
+            param_entries: IndexMap::new(),
+            param_total: 0,
         }
     }
 
@@ -224,6 +249,58 @@ impl App {
             self.current_folder = *id;
             self.list_state.select(Some(0));
         }
+    }
+
+    /// Called when device info arrives — seeds the param_entries map with
+    /// entries for all declared parameter IDs.
+    fn ensure_param_entries(&mut self, total: u8) {
+        self.param_total = total;
+        for id in 0..total {
+            self.param_entries.entry(id).or_default();
+        }
+    }
+
+    /// Select the next parameter that needs reading.
+    ///
+    /// Priority:
+    ///   1. Params marked `needs_reread` (reread after write)
+    ///   2. Params still `pending` in the initial forward scan
+    ///   3. Skipped params (pending, but earlier retries exhausted once)
+    fn next_param_to_read(&self) -> Option<u8> {
+        // Rereads after write get top priority
+        for (&id, entry) in &self.param_entries {
+            if entry.needs_reread {
+                return Some(id);
+            }
+        }
+        // Forward scan: first pending param
+        for (&id, entry) in &self.param_entries {
+            if entry.pending && entry.retries == 0 {
+                return Some(id);
+            }
+        }
+        // Retry previously-skipped params
+        for (&id, entry) in &self.param_entries {
+            if entry.pending && entry.retries < PARAM_MAX_RETRIES {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    /// Count how many parameters have been successfully loaded vs skipped.
+    fn param_progress(&self) -> (usize, usize) {
+        let loaded = self
+            .param_entries
+            .iter()
+            .filter(|(_, e)| !e.pending)
+            .count();
+        let skipped = self
+            .param_entries
+            .iter()
+            .filter(|(_, e)| e.pending && e.retries >= PARAM_MAX_RETRIES)
+            .count();
+        (loaded, skipped)
     }
 
     fn format_param_value(param: &Parameter) -> String {
@@ -586,14 +663,18 @@ fn discover_device(app: &mut App, port: &mut Box<dyn SerialPort>, timeout_secs: 
                     if let Packet::DeviceInformation(info) = &packet {
                         let addr =
                             try_packet_addr(info.src_addr).unwrap_or(PacketAddress::Transmitter);
+                        let param_total = info.parameters_total;
+                        let device_name = info.device_name().to_string();
+                        let src_addr = info.src_addr;
+                        mgr.handle_packet(&packet);
+                        drop(parser);
+                        drop(mgr);
                         app.selected_device = Some(addr);
+                        app.ensure_param_entries(param_total);
                         info!(
                             "Discovered: {} (0x{:02X}), {} params",
-                            info.device_name(),
-                            info.src_addr,
-                            info.parameters_total
+                            device_name, src_addr, param_total
                         );
-                        mgr.handle_packet(&packet);
                         return true;
                     }
                     mgr.handle_packet(&packet);
@@ -650,47 +731,63 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
 
         match read_from_serial(port, &mut read_buf) {
             Ok(bytes_read) if bytes_read > 0 => {
-                let mut parser = app.parser.lock().unwrap();
-                let mut mgr = app.manager.lock().unwrap();
-                for packet_result in parser.iter_packets(&read_buf[..bytes_read]) {
+                // Phase 1: parse packets (borrows app.parser only)
+                let packets: Vec<_> = {
+                    let mut parser = app.parser.lock().unwrap();
+                    parser.iter_packets(&read_buf[..bytes_read]).collect()
+                };
+
+                // Phase 2: process packets — extract data before borrowing mgr
+                for packet_result in packets {
                     match packet_result {
                         Ok(ref packet) => {
                             debug!("Parsed packet: {:?}", packet);
+                            // Extract info that mutates app before we borrow mgr
                             match packet {
                                 Packet::ParameterSettingsEntry(entry)
                                     if entry.chunks_remaining == 0 =>
                                 {
-                                    info!(
-                                        "Param {} loaded: {}",
-                                        entry.parameter_number, entry.name
-                                    );
+                                    let pid = entry.parameter_number;
+                                    info!("Param {} loaded: {}", pid, entry.name);
                                     app.param_request_pending = false;
-                                    app.param_read_retries = 0;
+                                    if let Some(ent) = app.param_entries.get_mut(&pid) {
+                                        ent.pending = false;
+                                        ent.needs_reread = false;
+                                        ent.retries = 0;
+                                    }
                                 }
-                                Packet::DeviceInformation(_) => {
-                                    // Already discovered in Phase 2
+                                Packet::DeviceInformation(info) => {
+                                    app.ensure_param_entries(info.parameters_total);
                                 }
                                 _ => {}
                             }
+                            let mut mgr = app.manager.lock().unwrap();
                             mgr.handle_packet(packet);
                         }
                         Err(_e) => {
-                            app.param_read_retries += 1;
-                            if app.param_read_retries >= 3 {
-                                info!(
-                                    "Param read failed after 3 retries, skipping (next_param_id={})",
-                                    app.next_param_id
-                                );
-                                app.param_read_retries = 0;
-                                app.param_skip_count += 1;
-                                app.param_request_pending = false;
-                            } else {
-                                info!(
-                                    "Param error, retrying (attempt {})",
-                                    app.param_read_retries
-                                );
-                                app.param_request_pending = false;
+                            // Find the param we were waiting for and bump its retry counter
+                            let failed_id = app
+                                .param_entries
+                                .iter()
+                                .find(|(_, e)| e.pending)
+                                .map(|(&id, _)| id);
+                            if let Some(pid) = failed_id {
+                                if let Some(ent) = app.param_entries.get_mut(&pid) {
+                                    ent.retries += 1;
+                                    if ent.retries >= PARAM_MAX_RETRIES {
+                                        info!(
+                                            "Param {} failed after {} retries, will retry later",
+                                            pid, PARAM_MAX_RETRIES
+                                        );
+                                    } else {
+                                        info!(
+                                            "Param {} error, will retry (attempt {})",
+                                            pid, ent.retries
+                                        );
+                                    }
+                                }
                             }
+                            app.param_request_pending = false;
                         }
                     }
                 }
@@ -707,60 +804,50 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
             }
         }
 
-        // Parameter enumeration
+        // Parameter enumeration / reread
         if app.selected_device.is_some()
-            && !app.params_loaded
             && !app.param_request_pending
             && now.duration_since(app.last_poll)
                 >= Duration::from_millis(app.poll_interval_ms as u64)
         {
             app.last_poll = now;
-            let mgr = app.manager.lock().unwrap();
             if let Some(dev_addr) = app.selected_device {
-                if let Some(device) = mgr.get_device(dev_addr) {
-                    if device.parameters_loaded {
-                        app.params_loaded = true;
-                        info!("All {} params loaded", device.parameters.len());
-                        app.status_message =
-                            format!("All {} parameters loaded", device.parameters.len());
-                    } else {
-                        // Account for skipped params that failed after 3 retries
-                        let effective_next = (device.parameters.len() as u8)
-                            .saturating_add(app.param_skip_count);
-                        if effective_next < device.parameters_total {
-                            drop(mgr);
-                            if let Some(pkt) =
-                                build_param_read_packet(dev_addr, effective_next, 0)
-                            {
-                                let _ = send_packet_to_serial(port, &pkt);
-                                app.param_request_pending = true;
-                                app.next_param_id = effective_next + 1;
-                                app.status_message = format!(
-                                    "Requesting parameter {}...{}",
-                                    effective_next,
-                                    if app.param_skip_count > 0 {
-                                        format!(" ({} skipped)", app.param_skip_count)
-                                    } else {
-                                        String::new()
-                                    }
-                                );
-                            }
-                            continue;
+                if let Some(next_id) = app.next_param_to_read() {
+                    if let Some(pkt) = build_param_read_packet(dev_addr, next_id, 0) {
+                        let (loaded, skipped) = app.param_progress();
+                        let is_reread = app
+                            .param_entries
+                            .get(&next_id)
+                            .is_some_and(|e| e.needs_reread);
+                        let _ = send_packet_to_serial(port, &pkt);
+                        app.param_request_pending = true;
+                        app.params_loaded = false;
+                        app.status_message = if is_reread {
+                            format!("Rereading parameter {} after write...", next_id)
                         } else {
-                            let succeeded = device.parameters.len();
-                            let skipped = app.param_skip_count;
-                            drop(mgr);
-                            app.params_loaded = true;
-                            app.status_message = format!(
-                                "Parameters enumerated ({} loaded, {} skipped)",
-                                succeeded, skipped
-                            );
-                            info!(
-                                "Parameter enumeration complete: {} loaded, {} skipped",
-                                succeeded, skipped
-                            );
-                        }
+                            format!(
+                                "Requesting parameter {}... ({} loaded, {} skipped)",
+                                next_id, loaded, skipped
+                            )
+                        };
                     }
+                    continue;
+                } else if !app.params_loaded {
+                    // No more params to read
+                    let (loaded, skipped) = app.param_progress();
+                    app.params_loaded = true;
+                    app.status_message = if skipped > 0 {
+                        format!(
+                            "Parameters enumerated ({} loaded, {} skipped)",
+                            loaded, skipped
+                        )
+                    } else {
+                        format!("All {} parameters loaded", loaded)
+                    };
+                    info!(
+                        "Parameter enumeration complete: {} loaded, {} skipped",
+                        loaded, skipped
+                    );
                 }
             }
         }
@@ -805,15 +892,20 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                             let current = app.list_state.selected().unwrap_or(0);
                             app.list_state.select(Some(current.saturating_sub(1)));
                         }
-                        KeyCode::Enter | KeyCode::Char(' ') => handle_select(app),
+                        KeyCode::Right | KeyCode::Char(' ') => handle_select(app),
                         KeyCode::Left => app.go_back(),
                         KeyCode::Char('r') => {
                             if let Some(dev_addr) = app.selected_device {
                                 app.params_loaded = false;
                                 app.param_request_pending = false;
-                                app.next_param_id = 0;
                                 app.last_poll = Instant::now() - Duration::from_secs(1);
                                 app.status_message = "Refreshing parameters...".to_string();
+                                // Reset all entries to pending for a full rescan
+                                for entry in app.param_entries.values_mut() {
+                                    entry.retries = 0;
+                                    entry.pending = true;
+                                    entry.needs_reread = false;
+                                }
                                 let mut mgr = app.manager.lock().unwrap();
                                 if let Some(device) = mgr.get_device_mut(dev_addr) {
                                     device.parameters.clear();
@@ -951,14 +1043,14 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
                 Ok(()) => {
                     app.status_message =
                         format!("Sent write for param {} ({} bytes)", pid, data.len());
+                    // Schedule a reread of just this parameter to confirm the new value
+                    if let Some(entry) = app.param_entries.get_mut(&pid) {
+                        entry.needs_reread = true;
+                        entry.pending = true;
+                    }
                     app.params_loaded = false;
                     app.param_request_pending = false;
                     app.last_poll = Instant::now();
-                    let mut mgr = app.manager.lock().unwrap();
-                    if let Some(device) = mgr.get_device_mut(dev_addr) {
-                        device.parameters.clear();
-                        device.parameters_loaded = false;
-                    }
                 }
                 Err(e) => {
                     app.status_message = format!("Write error: {}", e);
@@ -1101,17 +1193,19 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let device_info = if let Some(dev_addr) = app.selected_device {
         let mgr = app.manager.lock().unwrap();
         if let Some(device) = mgr.get_device(dev_addr) {
+            let (loaded, skipped) = app.param_progress();
             format!(
-                "{} | 0x{:02X} | Params: {}/{}{}",
+                "{} | 0x{:02X} | Params: {}/{}{}{}",
                 device.name,
                 dev_addr as u8,
-                device.parameters.len(),
-                device.parameters_total,
-                if device.parameters_loaded {
-                    " [LOADED]"
+                loaded,
+                app.param_total,
+                if skipped > 0 {
+                    format!(" ({} skipped)", skipped)
                 } else {
-                    ""
-                }
+                    String::new()
+                },
+                if app.params_loaded { " [LOADED]" } else { "" }
             )
         } else {
             format!("0x{:02X}", dev_addr as u8)
