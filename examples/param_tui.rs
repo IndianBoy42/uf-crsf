@@ -305,7 +305,7 @@ impl App {
         }
     }
 
-    fn format_param_detail(param: &Parameter) -> Vec<Line<'static>> {
+    fn format_param_detail(&self, param: &Parameter) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
         lines.push(Line::from(Span::styled(
             format!("Parameter: {} (ID {})", param.name, param.id),
@@ -422,7 +422,36 @@ impl App {
             }
             Some(ParameterData::Folder { children }) => {
                 lines.push(Line::from("Type: Folder"));
-                lines.push(Line::from(format!("Children: {:?}", children.as_slice())));
+                lines.push(Line::from(format!("Items ({}):", children.len())));
+                let mgr = self.manager.lock().unwrap();
+                if let Some(dev_addr) = self.selected_device {
+                    if let Some(device) = mgr.get_device(dev_addr) {
+                        for &child_id in children.iter() {
+                            if let Some(child) = device.get_parameter(child_id) {
+                                let icon = match &child.data {
+                                    Some(ParameterData::Folder { .. }) => "\u{25B6}",
+                                    Some(ParameterData::Float { .. }) => "\u{25CB}",
+                                    Some(ParameterData::TextSelection { .. }) => "\u{25C7}",
+                                    Some(ParameterData::String { .. }) => "\u{25A1}",
+                                    Some(ParameterData::Command { .. }) => "\u{25A0}",
+                                    Some(ParameterData::Info { .. }) => "\u{2139}",
+                                    Some(ParameterData::Vtx { .. }) => "\u{25B2}",
+                                    None => "?",
+                                };
+                                let val = Self::format_param_value(child);
+                                lines.push(Line::from(Span::styled(
+                                    format!("  {} [{}] {}  {}", icon, child_id, child.name, val),
+                                    Style::default().fg(Color::Cyan),
+                                )));
+                            } else {
+                                lines.push(Line::from(format!(
+                                    "  ? [{}] (not loaded)",
+                                    child_id
+                                )));
+                            }
+                        }
+                    }
+                }
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
                     "Press Enter to navigate into",
@@ -1200,7 +1229,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
 
     let content = if selected < params.len() {
         let (_, param) = &params[selected];
-        App::format_param_detail(param)
+        app.format_param_detail(param)
     } else if app.selected_device.is_none() {
         vec![
             Line::from(""),
