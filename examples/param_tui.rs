@@ -5,15 +5,17 @@
 //!
 //! Usage:
 //!   cargo run --example param_tui -- /dev/ttyACM0
+//!   cargo run --example param_tui -- /dev/ttyACM0 --baud 115200 --timeout 5
+//!   cargo run --example param_tui -- --port /dev/ttyUSB0 --log-file /tmp/crsf.log
 
-use std::env;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use log::{debug, error, info, warn, LevelFilter, Log, Metadata, Record};
+use log::{trace, debug, error, info, warn, LevelFilter, Log, Metadata, Record};
 
+use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -33,9 +35,32 @@ use uf_crsf::device::{DeviceManager, DeviceManagerConfig, Parameter};
 use uf_crsf::packets::{write_packet_to_buffer, Packet, PacketAddress, ParameterData};
 use uf_crsf::parser::CrsfParser;
 
-const BAUD_RATE: u32 = 400_000;
-const PARAM_POLL_INTERVAL_MS: u32 = 200;
-const LOG_FILE: &str = "/tmp/uf-crsf-tui.log";
+#[derive(Parser)]
+#[command(name = "uf-crsf-param-tui", about = "CRSF/ELRS parameter browser TUI")]
+struct Args {
+    #[arg(default_value = "/dev/ttyACM0", help = "Serial port path")]
+    port: String,
+    #[arg(long, default_value = "400000", help = "Serial baud rate")]
+    baud: u32,
+    #[arg(
+        long = "poll-ms",
+        default_value = "200",
+        help = "Parameter poll interval (ms)"
+    )]
+    poll_interval_ms: u32,
+    #[arg(
+        long = "log-file",
+        default_value = "/tmp/uf-crsf-tui.log",
+        help = "Log file path"
+    )]
+    log_file: String,
+    #[arg(
+        long = "timeout",
+        default_value = "10",
+        help = "Device discovery timeout (seconds)"
+    )]
+    discovery_timeout: u64,
+}
 
 /// Logger that writes all log records to a file.
 ///
@@ -79,18 +104,18 @@ fn start_time() -> Instant {
     *START.get_or_init(Instant::now)
 }
 
-fn init_logging() {
+fn init_logging(log_file: &str) {
     let file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(LOG_FILE)
+        .open(log_file)
         .expect("Failed to open log file");
     let logger = Box::new(FileLogger {
         file: Mutex::new(file),
     });
     log::set_logger(Box::leak(logger)).expect("Failed to set logger");
-    log::set_max_level(LevelFilter::Debug);
+    log::set_max_level(LevelFilter::Trace);
     info!("Log started");
 }
 
@@ -106,17 +131,16 @@ struct App {
     status_message: String,
     connected: bool,
     port_path: String,
+    baud_rate: u32,
+    poll_interval_ms: u32,
     params_loaded: bool,
     last_poll: Instant,
-    device_discovering: bool,
     param_request_pending: bool,
     next_param_id: u8,
-    discovery_start: Instant,
-    discovery_timed_out: bool,
 }
 
 impl App {
-    fn new(port_path: String) -> Self {
+    fn new(port_path: String, baud_rate: u32, poll_interval_ms: u32) -> Self {
         let config = DeviceManagerConfig {
             timeout_ms: 500,
             retry_count: 3,
@@ -136,13 +160,12 @@ impl App {
             status_message: "Discovering devices...".to_string(),
             connected: false,
             port_path,
+            baud_rate,
+            poll_interval_ms,
             params_loaded: false,
             last_poll: Instant::now(),
-            device_discovering: true,
             param_request_pending: false,
             next_param_id: 0,
-            discovery_start: Instant::now(),
-            discovery_timed_out: false,
         }
     }
 
@@ -392,7 +415,8 @@ fn read_from_serial(port: &mut Box<dyn SerialPort>, buf: &mut [u8]) -> io::Resul
     match port.read(buf) {
         Ok(n) => {
             if n > 0 {
-                debug!("RX: read {} bytes", n);
+                debug!("RX: read {n} bytes");
+                trace!("{buf:x?}");
             }
             Ok(n)
         }
@@ -452,12 +476,12 @@ fn try_packet_addr(v: u8) -> Option<PacketAddress> {
 
 /// Runs the pre-TUI discovery phase in normal terminal mode, then
 /// transitions to the interactive TUI once a device is found.
-fn run(app: &mut App) -> io::Result<()> {
+fn run(app: &mut App, timeout_secs: u64) -> io::Result<()> {
     // ── Phase 1: Open serial port ──────────────────────────────────
     let mut port = open_port(app)?;
 
     // ── Phase 2: Discover device ───────────────────────────────────
-    if !discover_device(app, &mut port) {
+    if !discover_device(app, &mut port, timeout_secs) {
         eprintln!();
         eprintln!("Troubleshooting:");
         eprintln!("  1. Is the device powered on?");
@@ -466,11 +490,13 @@ fn run(app: &mut App) -> io::Result<()> {
             app.port_path
         );
         eprintln!("     Try: ls /dev/ttyACM* /dev/ttyUSB*");
-        eprintln!("  3. Is the baud rate correct? (current: {})", BAUD_RATE);
+        eprintln!(
+            "  3. Is the baud rate correct? (current: {})",
+            app.baud_rate
+        );
         eprintln!("  4. Permission denied? Fix: sudo usermod -aG dialout $USER");
         eprintln!("  5. Is the device in use by another process?");
         eprintln!();
-        eprintln!("Check {} for detailed debug output", LOG_FILE);
         return Err(io::Error::other("Device discovery failed"));
     }
 
@@ -487,8 +513,8 @@ fn run(app: &mut App) -> io::Result<()> {
 }
 
 fn open_port(app: &App) -> io::Result<Box<dyn SerialPort>> {
-    eprint!("Opening {} @ {} baud... ", app.port_path, BAUD_RATE);
-    match serialport::new(&app.port_path, BAUD_RATE)
+    eprint!("Opening {} @ {} baud... ", app.port_path, app.baud_rate);
+    match serialport::new(&app.port_path, app.baud_rate)
         .timeout(Duration::from_millis(50))
         .open()
     {
@@ -517,9 +543,8 @@ fn open_port(app: &App) -> io::Result<Box<dyn SerialPort>> {
 
 /// Sends pings and waits for a device response (visible stderr output).
 /// Returns true if a device was found within the timeout.
-fn discover_device(app: &mut App, port: &mut Box<dyn SerialPort>) -> bool {
+fn discover_device(app: &mut App, port: &mut Box<dyn SerialPort>, timeout_secs: u64) -> bool {
     app.connected = true;
-    app.discovery_start = Instant::now();
     let discover_start = Instant::now();
     let mut last_ping = Instant::now();
     let mut read_buf = [0u8; 512];
@@ -541,7 +566,7 @@ fn discover_device(app: &mut App, port: &mut Box<dyn SerialPort>) -> bool {
             if let Some(ping) = build_ping_packet() {
                 let _ = send_packet_to_serial(port, &ping);
             }
-            if elapsed >= 10 {
+            if elapsed >= timeout_secs {
                 eprintln!(" (no response after {}s)", elapsed);
                 warn!("Device discovery timed out after {}s", elapsed);
                 return false;
@@ -558,7 +583,6 @@ fn discover_device(app: &mut App, port: &mut Box<dyn SerialPort>) -> bool {
                         let addr =
                             try_packet_addr(info.src_addr).unwrap_or(PacketAddress::Transmitter);
                         app.selected_device = Some(addr);
-                        app.device_discovering = false;
                         info!(
                             "Discovered: {} (0x{:02X}), {} params",
                             info.device_name(),
@@ -606,7 +630,7 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     app.last_poll = Instant::now();
-    app.status_message = format!("Connected to {} @ {} baud", app.port_path, BAUD_RATE);
+    app.status_message = format!("Connected to {} @ {} baud", app.port_path, app.baud_rate);
 
     let mut read_buf = [0u8; 512];
     let tick_rate = Duration::from_millis(50);
@@ -666,7 +690,7 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
             && !app.params_loaded
             && !app.param_request_pending
             && now.duration_since(app.last_poll)
-                >= Duration::from_millis(PARAM_POLL_INTERVAL_MS as u64)
+                >= Duration::from_millis(app.poll_interval_ms as u64)
         {
             app.last_poll = now;
             let mgr = app.manager.lock().unwrap();
@@ -983,98 +1007,16 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         let (_, param) = &params[selected];
         App::format_param_detail(param)
     } else if app.selected_device.is_none() {
-        let elapsed = Instant::now().duration_since(app.discovery_start).as_secs();
-
-        let mut lines = vec![
+        vec![
             Line::from(""),
             Line::from(Span::styled(
-                if app.discovery_timed_out {
-                    "No device responding"
-                } else {
-                    "Discovering devices..."
-                },
-                Style::default()
-                    .fg(if app.discovery_timed_out {
-                        Color::Red
-                    } else {
-                        Color::Yellow
-                    })
-                    .add_modifier(Modifier::BOLD),
+                "No device",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             )),
-            Line::from(format!("Attempting for {}s (ping every 2s)", elapsed)),
             Line::from(""),
-        ];
-
-        if app.discovery_timed_out {
-            lines.push(Line::from(Span::styled(
-                "Troubleshooting:",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " 1. Device not powered on",
-                Style::default().fg(Color::White),
-            )));
-            lines.push(Line::from(Span::raw(
-                "    Make sure your ELRS TX module is powered",
-            )));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " 2. Wrong serial port",
-                Style::default().fg(Color::White),
-            )));
-            lines.push(Line::from(Span::raw(format!(
-                "    Current: {} (try: ls /dev/ttyACM* /dev/ttyUSB*)",
-                app.port_path
-            ))));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " 3. Wrong baud rate",
-                Style::default().fg(Color::White),
-            )));
-            lines.push(Line::from(Span::raw(format!(
-                "    Current: {} (ELRS expects 400000)",
-                BAUD_RATE
-            ))));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " 4. Not a CRSF/ELRS device",
-                Style::default().fg(Color::White),
-            )));
-            lines.push(Line::from(Span::raw(
-                "    Verify the device speaks CRSF protocol",
-            )));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " 5. Permission denied",
-                Style::default().fg(Color::White),
-            )));
-            lines.push(Line::from(Span::raw(
-                "    Fix: sudo usermod -aG dialout $USER",
-            )));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Retrying automatically... Press q to quit.",
-                Style::default().fg(Color::DarkGray),
-            )));
-        } else {
-            lines.push(Line::from(Span::raw(
-                "Waiting for device to respond to ping...",
-            )));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Make sure your ELRS TX module is connected",
-                Style::default().fg(Color::DarkGray),
-            )));
-            lines.push(Line::from(Span::styled(
-                "and the serial port path is correct.",
-                Style::default().fg(Color::DarkGray),
-            )));
-        }
-
-        lines
+            Line::from("Device discovery failed or was skipped."),
+            Line::from("Restart the application to retry."),
+        ]
     } else if !app.params_loaded {
         vec![
             Line::from(""),
@@ -1168,21 +1110,22 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn main() {
-    init_logging();
+    let args = Args::parse();
 
-    let port_path = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "/dev/ttyACM0".to_string());
+    init_logging(&args.log_file);
 
     eprintln!("uf-crsf Parameter TUI");
-    eprintln!("Logging to {}", LOG_FILE);
+    eprintln!("Logging to {}", args.log_file);
     eprintln!();
 
-    info!("Starting CRSF Parameter TUI on {}", port_path);
+    info!(
+        "Starting CRSF Parameter TUI on {} @ {} baud (poll {}ms, timeout {}s)",
+        args.port, args.baud, args.poll_interval_ms, args.discovery_timeout
+    );
 
-    let mut app = App::new(port_path);
+    let mut app = App::new(args.port, args.baud, args.poll_interval_ms);
 
-    if let Err(e) = run(&mut app) {
+    if let Err(e) = run(&mut app, args.discovery_timeout) {
         error!("Fatal error: {}", e);
         eprintln!("\nFatal error: {}", e);
         std::process::exit(1);
