@@ -3,6 +3,9 @@ use crate::error::CrsfParsingError;
 use crate::parser::RawCrsfPacket;
 use crc;
 
+#[cfg(feature = "logging")]
+use log::{trace, warn};
+
 mod accel_gyro;
 mod airspeed;
 mod ardupilot;
@@ -154,6 +157,8 @@ impl Packet {
             .map_err(|_| CrsfParsingError::UnexpectedPacketType(raw_packet.raw_packet_type()))?;
 
         let data = raw_packet.payload();
+        #[cfg(feature = "logging")]
+        trace!("parse: type=0x{:02X} ({:?}), payload_len={}", packet_type as u8, packet_type, data.len());
         match packet_type {
             LinkStatistics::PACKET_TYPE => {
                 Ok(Self::LinkStatistics(LinkStatistics::from_bytes(data)?))
@@ -212,10 +217,14 @@ impl Packet {
             ArduPilotPassthrough::PACKET_TYPE => Ok(Self::ArduPilotPassthrough(
                 ArduPilotPassthrough::from_bytes(data)?,
             )),
-            _ => Ok(Packet::NotImplemented(
-                packet_type,
-                raw_packet.payload().len(),
-            )),
+            _ => {
+                #[cfg(feature = "logging")]
+                warn!("parse: unhandled packet type 0x{:02X} ({:?}), payload_len={}", packet_type as u8, packet_type, data.len());
+                Ok(Packet::NotImplemented(
+                    packet_type,
+                    raw_packet.payload().len(),
+                ))
+            }
         }
     }
 }

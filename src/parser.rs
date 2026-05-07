@@ -6,6 +6,9 @@ use crate::{
 use crc::Crc;
 use num_enum::TryFromPrimitive;
 
+#[cfg(feature = "logging")]
+use log::{debug, trace, warn};
+
 /// Parser state machine for CRSF packet parsing.
 ///
 /// The parser cycles through these states as it processes a byte stream:
@@ -337,9 +340,13 @@ impl CrsfParser {
                     self.position = 0;
                     self.buffer[self.position] = byte;
                     self.state = State::AwaitingLength;
+                    #[cfg(feature = "logging")]
+                    trace!("parser: sync byte 0x{byte:02X} accepted, waiting for length");
                     Ok(None)
                 } else {
                     self.state = State::AwaitingSync;
+                    #[cfg(feature = "logging")]
+                    trace!("parser: invalid sync byte 0x{byte:02X}, resyncing");
                     Err(CrsfStreamError::InvalidSync(byte))
                 }
             }
@@ -348,6 +355,12 @@ impl CrsfParser {
 
                 if !(constants::CRSF_MIN_PACKET_SIZE..=constants::CRSF_MAX_PACKET_SIZE).contains(&n)
                 {
+                    #[cfg(feature = "logging")]
+                    warn!(
+                        "parser: invalid length byte 0x{byte:02X} (n={n}, expected {}..={}), resyncing",
+                        constants::CRSF_MIN_PACKET_SIZE,
+                        constants::CRSF_MAX_PACKET_SIZE,
+                    );
                     self.reset();
                     // A false sync can make this "length" byte invalid. Re-evaluate
                     // the same byte as a new sync candidate so it is not lost.
@@ -357,6 +370,8 @@ impl CrsfParser {
                 self.position = 1;
                 self.buffer[self.position] = byte;
                 self.state = State::Reading(n - 1);
+                #[cfg(feature = "logging")]
+                trace!("parser: length={n}, type=0x{:02X} (expect {} payload bytes)", 0u8, n - 3);
                 Ok(None)
             }
             State::Reading(n) => {
@@ -364,6 +379,8 @@ impl CrsfParser {
                 self.buffer[self.position] = byte;
                 if self.position == n - 1 {
                     self.state = State::AwaitingCrc;
+                    #[cfg(feature = "logging")]
+                    trace!("parser: payload complete, awaiting crc");
                 }
                 Ok(None)
             }
@@ -377,6 +394,10 @@ impl CrsfParser {
                 let packet_crc = self.buffer[self.position];
 
                 if calculated_crc != packet_crc {
+                    #[cfg(feature = "logging")]
+                    warn!(
+                        "parser: CRC mismatch (calculated=0x{calculated_crc:02X}, packet=0x{packet_crc:02X}), resyncing"
+                    );
                     self.reset();
                     // Preserve this byte as potential sync for the next frame.
                     self.try_start_frame_from_sync(byte);
@@ -389,6 +410,13 @@ impl CrsfParser {
                 let end = self.position + 1;
                 self.reset();
                 let bytes = &self.buffer[start..end];
+                #[cfg(feature = "logging")]
+                debug!(
+                    "parser: complete packet len={}, addr=0x{:02X}, type=0x{:02X}",
+                    bytes.len(),
+                    bytes[0],
+                    bytes[2],
+                );
                 match RawCrsfPacket::new(bytes) {
                     None => Err(CrsfStreamError::InputBufferTooSmall),
                     Some(packet) => Ok(Some(packet)),

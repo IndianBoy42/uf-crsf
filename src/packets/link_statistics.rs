@@ -2,6 +2,9 @@ use crate::packets::CrsfPacket;
 use crate::packets::PacketType;
 use crate::CrsfParsingError;
 
+#[cfg(feature = "logging")]
+use log::trace;
+
 /// Represents a Link Statistics packet.
 ///
 /// This packet provides statistics about the connection quality.
@@ -83,6 +86,13 @@ impl CrsfPacket for LinkStatistics {
 
     fn from_bytes(data: &[u8]) -> Result<Self, CrsfParsingError> {
         if data.len() == Self::MIN_PAYLOAD_SIZE {
+            #[cfg(feature = "logging")]
+            trace!(
+                "LinkStatistics: rssi1={}, rssi2={}, lq={}, snr={}, ant={}, rf={}, txpwr={}, drssi={}, dlq={}, dsnr={}",
+                data[0], data[1], data[2], data[3] as i8,
+                data[4], data[5], data[6],
+                data[7], data[8], data[9] as i8,
+            );
             Ok(Self {
                 uplink_rssi_1: data[0],
                 uplink_rssi_2: data[1],
