@@ -28,6 +28,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-serial = "5.4.4"
 embedded-io-adapters = { version = "0.7.0", features = ["tokio-1"] }
 embedded-io-async = "0.7.0"
+ratatui = "0.29"
+crossterm = "0.28"
 
 
 [[example]]
@@ -59,6 +61,11 @@ test = false
 [[example]]
 name = "simple"
 path = "examples/local_simple.rs"
+
+[[example]]
+name = "param_tui"
+path = "examples/param_tui.rs"
+test = false
 
 [features]
 "defmt" = [
