@@ -203,7 +203,6 @@ impl App {
             if let Some(root) = device.root_folder() {
                 if let Some(children) = root.folder_children() {
                     let mut params = Vec::new();
-                    params.push((0, root.clone()));
                     for &child_id in children {
                         if let Some(p) = device.get_parameter(child_id) {
                             params.push((child_id, p.clone()));
@@ -422,10 +421,23 @@ impl App {
             }
             Some(ParameterData::Folder { children }) => {
                 lines.push(Line::from("Type: Folder"));
-                lines.push(Line::from(format!("Items ({}):", children.len())));
                 let mgr = self.manager.lock().unwrap();
                 if let Some(dev_addr) = self.selected_device {
                     if let Some(device) = mgr.get_device(dev_addr) {
+                        let loaded_count = children
+                            .iter()
+                            .filter(|&&id| device.get_parameter(id).is_some())
+                            .count();
+                        let unloaded = children.len() - loaded_count;
+                        lines.push(Line::from(format!(
+                            "Items ({}){}",
+                            loaded_count,
+                            if unloaded > 0 {
+                                format!("  ({} not loaded)", unloaded)
+                            } else {
+                                String::new()
+                            },
+                        )));
                         for &child_id in children.iter() {
                             if let Some(child) = device.get_parameter(child_id) {
                                 let icon = match &child.data {
@@ -442,11 +454,6 @@ impl App {
                                 lines.push(Line::from(Span::styled(
                                     format!("  {} [{}] {}  {}", icon, child_id, child.name, val),
                                     Style::default().fg(Color::Cyan),
-                                )));
-                            } else {
-                                lines.push(Line::from(format!(
-                                    "  ? [{}] (not loaded)",
-                                    child_id
                                 )));
                             }
                         }
