@@ -655,15 +655,39 @@ impl ParameterSettingsEntry {
         Ok(data.iter().position(|&b| b == 0))
     }
 
+    /// Substitute ExpressLRS arrow bytes and push into a String in one pass.
+    ///
+    /// ExpressLRS uses 0xC0 for up-arrow and 0xC1 for down-arrow in
+    /// TextSelection options strings (e.g. "AUX1\xc0" = "AUX1↑").
+    /// These are not valid UTF-8, so we replace them with `^` and `v`
+    /// in-place on the stack, then validate and push — avoiding an extra
+    /// heapless::Vec copy.
+    fn push_sanitized<const N: usize>(
+        out: &mut String<N>,
+        data: &[u8],
+    ) -> Result<(), CrsfParsingError> {
+        let mut tmp = [0u8; MAX_OPTIONS];
+        if data.len() > tmp.len() {
+            return Err(CrsfParsingError::InvalidPayloadLength);
+        }
+        for (i, &b) in data.iter().enumerate() {
+            tmp[i] = match b {
+                0xC0 => b'^',
+                0xC1 => b'v',
+                other => other,
+            };
+        }
+        let s =
+            core::str::from_utf8(&tmp[..data.len()]).map_err(|_| CrsfParsingError::InvalidPayload)?;
+        out.push_str(s)
+            .map_err(|_| CrsfParsingError::InvalidPayloadLength)
+    }
+
     /// Helper function to parse a null-terminated string.
     fn parse_string(data: &[u8]) -> Result<(String<MAX_STRING_LEN>, usize), CrsfParsingError> {
         let null_pos = Self::find_null(data)?.ok_or(CrsfParsingError::InvalidPayload)?;
-        let str_slice = &data[..null_pos];
-        let s = core::str::from_utf8(str_slice).map_err(|_| CrsfParsingError::InvalidPayload)?;
         let mut string = String::new();
-        string
-            .push_str(s)
-            .map_err(|_| CrsfParsingError::InvalidPayloadLength)?;
+        Self::push_sanitized(&mut string, &data[..null_pos])?;
         Ok((string, null_pos + 1))
     }
 
@@ -671,12 +695,8 @@ impl ParameterSettingsEntry {
         data: &[u8],
     ) -> Result<(String<MAX_OPTIONS>, usize), CrsfParsingError> {
         let null_pos = Self::find_null(data)?.ok_or(CrsfParsingError::InvalidPayload)?;
-        let str_slice = &data[..null_pos];
-        let s = core::str::from_utf8(str_slice).map_err(|_| CrsfParsingError::InvalidPayload)?;
         let mut string = String::new();
-        string
-            .push_str(s)
-            .map_err(|_| CrsfParsingError::InvalidPayloadLength)?;
+        Self::push_sanitized(&mut string, &data[..null_pos])?;
         Ok((string, null_pos + 1))
     }
 
@@ -2096,6 +2116,47 @@ mod tests {
             assert_eq!(*value, 9);
         } else {
             panic!("Expected TextSelection data");
+        }
+    }
+
+    #[test]
+    fn test_elrs_arrow_byte_substitution_in_chunk() {
+        let raw: &[u8] = &[
+            0xEA, 0xEE, 0x0E, 0x02, 0x0A, 0x89, 0x50, 0x69, 0x74, 0x6D, 0x6F, 0x64, 0x65, 0x00,
+            0x4F, 0x66, 0x66, 0x3B, 0x4F, 0x6E, 0x3B, 0x41, 0x55, 0x58, 0x31, 0xC0, 0x3B, 0x41,
+            0x55, 0x58, 0x31, 0xC1,
+        ];
+        let chunk = ParameterChunk::from_bytes(raw).unwrap();
+        // Chunk preserves raw bytes; substitution happens at string-parse time
+        assert!(chunk.payload.iter().any(|&b| b == 0xC0));
+        assert!(chunk.payload.iter().any(|&b| b == 0xC1));
+    }
+
+    #[test]
+    fn test_elrs_arrow_byte_substitution_in_entry() {
+        let mut buf: Vec<u8, 256> = Vec::new();
+        buf.push(0xEA).unwrap();
+        buf.push(0xEE).unwrap();
+        buf.push(0x0E).unwrap();
+        buf.push(0x00).unwrap();
+        buf.push(0x0A).unwrap();
+        buf.push(0x89).unwrap();
+        buf.extend_from_slice(b"Pitmode\0").unwrap();
+        buf.extend_from_slice(b"Off;On;AUX1\xC0;AUX1\xC1\0").unwrap();
+        buf.push(0x00).unwrap();
+        buf.push(0x00).unwrap();
+        buf.push(0x05).unwrap();
+        buf.push(0x00).unwrap();
+        buf.extend_from_slice(b"\0").unwrap();
+
+        let entry = ParameterSettingsEntry::from_bytes(&buf).unwrap();
+        assert_eq!(entry.name, "Pitmode");
+        if let Some(ParameterData::TextSelection { options, .. }) = &entry.data {
+            assert!(options.contains('^'));
+            assert!(options.contains('v'));
+            assert!(!options.as_bytes().iter().any(|&b| b == 0xC0 || b == 0xC1));
+        } else {
+            panic!("Expected TextSelection");
         }
     }
 }
