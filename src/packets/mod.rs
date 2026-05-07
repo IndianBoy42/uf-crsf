@@ -72,7 +72,10 @@ pub use mavlink_fc::MavLinkFc;
 pub use mavlink_sensor::MavLinkSensor;
 pub use msp::MspPacket;
 pub use parameter_read::ParameterRead;
-pub use parameter_settings_entry::{ParameterData, ParameterDataType, ParameterSettingsEntry};
+pub use parameter_settings_entry::{
+    ParameterChunk, ParameterChunkReassembler, ParameterData, ParameterDataType,
+    ParameterSettingsEntry,
+};
 pub use parameter_write::ParameterWrite;
 pub use rc_channels_packed::RcChannelsPacked;
 pub use remote::Remote;

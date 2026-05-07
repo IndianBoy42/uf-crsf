@@ -371,7 +371,11 @@ impl CrsfParser {
                 self.buffer[self.position] = byte;
                 self.state = State::Reading(n - 1);
                 #[cfg(feature = "logging")]
-                trace!("parser: length={n}, type=0x{:02X} (expect {} payload bytes)", 0u8, n - 3);
+                trace!(
+                    "parser: length={byte}, type=0x{:02X} (expect {} payload bytes)",
+                    0u8,
+                    n - 3
+                );
                 Ok(None)
             }
             State::Reading(n) => {

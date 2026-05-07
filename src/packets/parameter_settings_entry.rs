@@ -7,6 +7,242 @@ const MAX_STRING_LEN: usize = 128;
 const MAX_CHILDREN: usize = 32;
 const MAX_OPTIONS: usize = 128;
 
+/// Maximum bytes of the entry payload that can fit in a single chunk.
+///
+/// Derivation: max CRSF frame is 64 bytes. For an extended frame:
+/// 64 - sync(1) - len(1) - type(1) - dst(1) - src(1) - param_num(1)
+///     - chunks_remaining(1) - crc(1) = 56 bytes for entry fragment.
+const MAX_CHUNK_PAYLOAD_SIZE: usize = 56;
+
+/// Maximum number of chunks supported when reassembling a parameter.
+const MAX_CHUNKS: usize = 8;
+
+/// Single chunk of a chunked [`ParameterSettingsEntry`] (0x2B) frame.
+///
+/// When a parameter's entry payload exceeds [`MAX_CHUNK_PAYLOAD_SIZE`] (56 bytes),
+/// the device splits it across multiple 0x2B frames. Each chunk carries the
+/// parameter number, remaining chunk count, and a fragment of the entry payload.
+///
+/// - **Chunk 0** fragment starts with: `parent | data_type | name\0 | [type data]`
+/// - **Chunks 1+** fragment: continuation of type-specific data
+///
+/// Use [`ParameterChunkReassembler`] to collect chunks into a complete entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ParameterChunk {
+    /// Destination device address.
+    pub dst_addr: u8,
+    /// Origin device address.
+    pub src_addr: u8,
+    /// Parameter number (index).
+    pub param_number: u8,
+    /// Remaining chunks count for this parameter (0 = this is the last chunk).
+    pub chunks_remaining: u8,
+    /// Raw entry payload fragment.
+    ///
+    /// For chunk 0 this starts with `parent | data_type | name\0`.
+    /// For chunks 1+ this continues the type-specific data.
+    pub payload: Vec<u8, MAX_CHUNK_PAYLOAD_SIZE>,
+}
+
+impl ParameterChunk {
+    /// Parse a 0x2B frame payload as a chunk.
+    ///
+    /// The `data` slice is the full extended-frame payload:
+    /// `dst(1) | src(1) | param_number(1) | chunks_remaining(1) | entry_fragment`.
+    pub fn from_bytes(data: &[u8]) -> Result<Self, CrsfParsingError> {
+        if data.len() < 4 {
+            return Err(CrsfParsingError::InvalidPayloadLength);
+        }
+        let dst_addr = data[0];
+        let src_addr = data[1];
+        let param_number = data[2];
+        let chunks_remaining = data[3];
+        let mut payload: Vec<u8, MAX_CHUNK_PAYLOAD_SIZE> = Vec::new();
+        for &b in &data[4..] {
+            payload.push(b).map_err(|_| CrsfParsingError::InvalidPayloadLength)?;
+        }
+        Ok(Self {
+            dst_addr,
+            src_addr,
+            param_number,
+            chunks_remaining,
+            payload,
+        })
+    }
+}
+
+/// Reassembles chunked [`ParameterSettingsEntry`] frames into a complete entry.
+///
+/// When a parameter's metadata exceeds 56 bytes, the device sends it across
+/// multiple 0x2B frames (chunks). This reassembler collects chunks in arrival
+/// order and produces a complete [`ParameterSettingsEntry`] once all chunks
+/// are received.
+///
+/// # Usage
+///
+/// ```no_run
+/// # use uf_crsf::packets::parameter_settings_entry::ParameterChunkReassembler;
+/// let mut reassembler = ParameterChunkReassembler::new();
+///
+/// // Feed chunks as 0x2B frame payloads arrive from the device
+/// for frame_payload in /* incoming stream */ {
+///     let chunk = /* ParameterChunk::from_bytes(frame_payload)? */;
+///     match reassembler.push(chunk)? {
+///         Some(entry) => {
+///             // Complete parameter received ready for use
+///             break;
+///         }
+///         None => {
+///             // More chunks expected, keep reading
+///         }
+///     }
+/// }
+/// # Ok::<_, uf_crsf::CrsfParsingError>(())
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct ParameterChunkReassembler {
+    /// Parameter number being assembled.
+    param_number: u8,
+    /// CRSF addresses from the chunk frames.
+    dst_addr: u8,
+    src_addr: u8,
+    /// Buffered chunk payloads in order of arrival.
+    chunks: Vec<Vec<u8, MAX_CHUNK_PAYLOAD_SIZE>, MAX_CHUNKS>,
+    /// Number of chunks received so far.
+    chunks_received: u8,
+    /// Total expected chunks (from chunk 0's chunks_remaining + 1).
+    total_chunks: u8,
+    /// Assembly complete flag.
+    complete: bool,
+}
+
+impl ParameterChunkReassembler {
+    /// Create a fresh reassembler with no pending parameter.
+    pub const fn new() -> Self {
+        Self {
+            param_number: 0,
+            dst_addr: 0,
+            src_addr: 0,
+            chunks: Vec::new(),
+            chunks_received: 0,
+            total_chunks: 0,
+            complete: false,
+        }
+    }
+
+    /// Push a chunk into the reassembler.
+    ///
+    /// Returns `Ok(None)` when more chunks are expected, or
+    /// `Ok(Some(entry))` with the complete [`ParameterSettingsEntry`]
+    /// once all chunks have been collected.
+    ///
+    /// If a chunk for a different `param_number` arrives mid-assembly,
+    /// the reassembler automatically resets and starts assembling the
+    /// new parameter instead.
+    pub fn push(
+        &mut self,
+        chunk: ParameterChunk,
+    ) -> Result<Option<ParameterSettingsEntry>, CrsfParsingError> {
+        // Auto-reset if a different parameter arrives mid-assembly
+        if self.chunks_received > 0 && chunk.param_number != self.param_number {
+            self.reset();
+        }
+
+        if self.chunks_received == 0 {
+            // First chunk — initialise state from it
+            self.param_number = chunk.param_number;
+            self.dst_addr = chunk.dst_addr;
+            self.src_addr = chunk.src_addr;
+            self.total_chunks = chunk.chunks_remaining + 1;
+            self.complete = false;
+        }
+
+        // Guard against exceeding the chunk budget
+        if usize::from(self.chunks_received) >= MAX_CHUNKS {
+            // Too many chunks — reset and report error
+            self.reset();
+            return Err(CrsfParsingError::InvalidPayloadLength);
+        }
+
+        // Buffer the chunk payload
+        self.chunks
+            .push(chunk.payload)
+            .map_err(|_| CrsfParsingError::InvalidPayloadLength)?;
+        self.chunks_received += 1;
+
+        if chunk.chunks_remaining == 0 {
+            // Last chunk — reassemble into a complete entry
+            self.complete = true;
+            let entry = self.reassemble()?;
+            Ok(Some(entry))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Concatenate all buffered chunk payloads and parse the result.
+    fn reassemble(&self) -> Result<ParameterSettingsEntry, CrsfParsingError> {
+        let total_payload_len: usize = self.chunks.iter().map(|c| c.len()).sum();
+        let total_size = 4 + total_payload_len; // 4-byte header + entry payload
+        let mut buffer = [0u8; 4 + MAX_CHUNKS * MAX_CHUNK_PAYLOAD_SIZE];
+
+        if total_size > buffer.len() {
+            return Err(CrsfParsingError::BufferOverflow);
+        }
+
+        // Build reconstructed frame: dst | src | param_num | chunks_remaining=0 | [all fragments]
+        buffer[0] = self.dst_addr;
+        buffer[1] = self.src_addr;
+        buffer[2] = self.param_number;
+        buffer[3] = 0; // chunks_remaining = 0 (complete parameter)
+
+        let mut offset = 4;
+        for chunk in &self.chunks {
+            buffer[offset..offset + chunk.len()].copy_from_slice(chunk);
+            offset += chunk.len();
+        }
+
+        ParameterSettingsEntry::from_bytes(&buffer[..total_size])
+    }
+
+    /// Reset the reassembler to idle state.
+    pub fn reset(&mut self) {
+        self.param_number = 0;
+        self.dst_addr = 0;
+        self.src_addr = 0;
+        self.chunks.clear();
+        self.chunks_received = 0;
+        self.total_chunks = 0;
+        self.complete = false;
+    }
+
+    /// Returns `true` once all chunks have been received and the entry is ready.
+    pub fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    /// Returns the parameter number currently being assembled.
+    pub fn param_number(&self) -> u8 {
+        self.param_number
+    }
+
+    /// Returns the total expected number of chunks.
+    pub fn total_chunks(&self) -> u8 {
+        self.total_chunks
+    }
+
+    /// Returns the number of chunks received so far.
+    pub fn chunks_received(&self) -> u8 {
+        self.chunks_received
+    }
+
+    /// Returns `true` when no parameter assembly is in progress.
+    pub fn is_idle(&self) -> bool {
+        self.chunks_received == 0
+    }
+}
+
 /// CRSF parameter data types (lower 7 bits of type byte).
 ///
 /// Each parameter has a type determining its value format and constraints.
@@ -1254,5 +1490,477 @@ mod tests {
             round_trip_entry.get_data_type().unwrap(),
             ParameterDataType::Vtx
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Chunked parameter parsing tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parameter_chunk_single() {
+        // A single-chunk parameter (no actual chunking needed)
+        let data: [u8; 10] = [
+            0xEA, 0xEE, // dst, src
+            0x05, 0x00, // param_number=5, chunks_remaining=0
+            0x00,       // parent=0
+            0x08,       // data_type=Float
+            0x50, 0x6F, 0x77, 0x00, // "Pow\0"
+        ];
+        let chunk = ParameterChunk::from_bytes(&data).unwrap();
+        assert_eq!(chunk.dst_addr, 0xEA);
+        assert_eq!(chunk.src_addr, 0xEE);
+        assert_eq!(chunk.param_number, 5);
+        assert_eq!(chunk.chunks_remaining, 0);
+        assert_eq!(chunk.payload.as_slice(), &[0x00, 0x08, 0x50, 0x6F, 0x77, 0x00]);
+    }
+
+    #[test]
+    fn test_parameter_chunk_too_short() {
+        let data: [u8; 3] = [0xEA, 0xEE, 0x05];
+        let result = ParameterChunk::from_bytes(&data);
+        assert!(matches!(
+            result,
+            Err(CrsfParsingError::InvalidPayloadLength)
+        ));
+    }
+
+    #[test]
+    fn test_parameter_chunk_payload_overflow() {
+        // Create a chunk with more than MAX_CHUNK_PAYLOAD_SIZE bytes of payload
+        let mut data = Vec::<u8, 128>::new();
+        data.push(0xEA).unwrap(); // dst
+        data.push(0xEE).unwrap(); // src
+        data.push(0x01).unwrap(); // param_number
+        data.push(0x00).unwrap(); // chunks_remaining
+        // Fill payload with MAX_CHUNK_PAYLOAD_SIZE + 1 bytes
+        for _ in 0..=MAX_CHUNK_PAYLOAD_SIZE {
+            data.push(0xAA).unwrap();
+        }
+        let result = ParameterChunk::from_bytes(data.as_slice());
+        assert!(matches!(
+            result,
+            Err(CrsfParsingError::InvalidPayloadLength)
+        ));
+    }
+
+    #[test]
+    fn test_reassembler_idle_initial_state() {
+        let reassembler = ParameterChunkReassembler::new();
+        assert!(reassembler.is_idle());
+        assert!(!reassembler.is_complete());
+        assert_eq!(reassembler.chunks_received(), 0);
+    }
+
+    #[test]
+    fn test_reassembler_single_chunk_float() {
+        // A complete Float parameter that fits in one chunk
+        let mut reassembler = ParameterChunkReassembler::new();
+
+        // Build a chunk payload: parent(0) + data_type(0x08) + "Test\0" + float data + "mW\0"
+        let mut payload_buf = [0u8; 64];
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 2, 0, 0, 0x08, "Test")
+            .unwrap()
+            .add_data(ParameterData::Float {
+                value: 2000,
+                min: 0,
+                max: 10000,
+                default: 2000,
+                decimal_point: 0,
+                step_size: 100,
+                unit: String::try_from("mW").unwrap(),
+            });
+        let entry_len = entry.to_bytes(&mut payload_buf).unwrap();
+
+        // Feed the full entry as a single chunk
+        let chunk = ParameterChunk::from_bytes(&payload_buf[..entry_len]).unwrap();
+        let result = reassembler.push(chunk).unwrap();
+
+        assert!(result.is_some());
+        let assembled = result.unwrap();
+        assert_eq!(assembled.parameter_number, 2);
+        assert_eq!(assembled.name, "Test");
+        assert!(!assembled.is_hidden());
+        assert_eq!(
+            assembled.get_data_type().unwrap(),
+            ParameterDataType::Float
+        );
+        if let Some(ParameterData::Float { value, unit, .. }) = &assembled.data {
+            assert_eq!(*value, 2000);
+            assert_eq!(*unit, "mW");
+        } else {
+            panic!("Expected Float data");
+        }
+        assert!(reassembler.is_complete());
+        assert!(!reassembler.is_idle());
+        assert_eq!(reassembler.chunks_received(), 1);
+        assert_eq!(reassembler.total_chunks(), 1);
+        assert_eq!(reassembler.param_number(), 2);
+    }
+
+    #[test]
+    fn test_reassembler_multi_chunk_text_selection() {
+        // Create a TextSelection parameter large enough to need 2 chunks.
+        // The entry payload must exceed MAX_CHUNK_PAYLOAD_SIZE (56).
+        //
+        // Entry layout: parent(1) + data_type(1) + name(N+1) + options(O+1) +
+        //               value(1) + min(1) + max(1) + default(1) + unit(U+1)
+        // We use a 50-char options string + null = 51 bytes, name="P" + null = 2 bytes,
+        // unit="U" + null = 2 bytes.
+        // Total = 1 + 1 + 2 + 51 + 4 + 2 = 61 bytes (overflows 56).
+
+        // 50 'x' chars to make the entry payload overflow 56 bytes
+        let options_body = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; // 50 chars
+        let options_str: String<MAX_OPTIONS> = String::try_from(options_body).unwrap();
+        let unit_str: String<MAX_STRING_LEN> = String::try_from("U").unwrap();
+
+        // Build full entry bytes
+        let mut full_buf = [0u8; 128];
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 3, 0, 0, 0x09, "P")
+            .unwrap()
+            .add_data(ParameterData::TextSelection {
+                options: options_str.clone(),
+                value: 1,
+                min: 0,
+                max: 50,
+                default: 0,
+                unit: unit_str.clone(),
+            });
+        let entry_len = entry.to_bytes(&mut full_buf).unwrap();
+
+        // Verify it actually needs chunking
+        let entry_payload_len = entry_len - 4; // minus dst/src/param/chunks header
+        assert!(
+            entry_payload_len > MAX_CHUNK_PAYLOAD_SIZE,
+            "Test data must exceed chunk size ({} > {})",
+            entry_payload_len,
+            MAX_CHUNK_PAYLOAD_SIZE
+        );
+
+        // Split into two chunks
+        // Chunk 0: 4-byte header (dst/src/param/chunks) + first MAX_CHUNK_PAYLOAD_SIZE entry bytes
+        let chunk0_size = 4 + MAX_CHUNK_PAYLOAD_SIZE;
+        let mut chunk0_data = [0u8; 64];
+        chunk0_data[0..4].copy_from_slice(&full_buf[0..4]); // dst, src, param#, chunks_remaining
+        chunk0_data[4..chunk0_size].copy_from_slice(&full_buf[4..chunk0_size]);
+        chunk0_data[3] = 1; // chunks_remaining = 1 (1 more chunk after this)
+
+        // Chunk 1: 4-byte header + remaining entry bytes
+        let remaining = entry_len - chunk0_size;
+        let chunk1_size = 4 + remaining;
+        let mut chunk1_data = [0u8; 64];
+        chunk1_data[0..4].copy_from_slice(&full_buf[0..4]); // dst, src, same param#
+        chunk1_data[3] = 0; // chunks_remaining = 0 (last chunk)
+        chunk1_data[4..chunk1_size].copy_from_slice(&full_buf[chunk0_size..entry_len]);
+
+        // Reassemble
+        let mut reassembler = ParameterChunkReassembler::new();
+        let chunk0 = ParameterChunk::from_bytes(&chunk0_data[..chunk0_size]).unwrap();
+        let result0 = reassembler.push(chunk0).unwrap();
+        assert!(result0.is_none(), "Expected more chunks");
+        assert!(!reassembler.is_complete());
+        assert_eq!(reassembler.chunks_received(), 1);
+        assert_eq!(reassembler.total_chunks(), 2);
+
+        let chunk1 = ParameterChunk::from_bytes(&chunk1_data[..chunk1_size]).unwrap();
+        let result1 = reassembler.push(chunk1).unwrap();
+        assert!(result1.is_some(), "Expected completion");
+
+        let assembled = result1.unwrap();
+        assert_eq!(assembled.parameter_number, 3);
+        assert_eq!(assembled.name, "P");
+        assert_eq!(
+            assembled.get_data_type().unwrap(),
+            ParameterDataType::TextSelection
+        );
+        if let Some(ParameterData::TextSelection {
+            options,
+            value,
+            min,
+            max,
+            default,
+            unit,
+        }) = &assembled.data
+        {
+            assert_eq!(*options, options_str);
+            assert_eq!(*value, 1);
+            assert_eq!(*min, 0);
+            assert_eq!(*max, 50);
+            assert_eq!(*default, 0);
+            assert_eq!(*unit, unit_str);
+        } else {
+            panic!("Expected TextSelection data");
+        }
+
+        assert!(reassembler.is_complete());
+        assert_eq!(reassembler.chunks_received(), 2);
+    }
+
+    #[test]
+    fn test_reassembler_auto_reset_on_new_parameter() {
+        // Start assembling param 5, then receive param 6 before completion
+        let mut reassembler = ParameterChunkReassembler::new();
+
+        // Chunk 0 of param 5 (incomplete)
+        let chunk5 = ParameterChunk {
+            dst_addr: 0xEA,
+            src_addr: 0xEE,
+            param_number: 5,
+            chunks_remaining: 1,
+            payload: {
+                let mut p: Vec<u8, MAX_CHUNK_PAYLOAD_SIZE> = Vec::new();
+                p.push(0x00).unwrap(); // parent
+                p.push(0x0C).unwrap(); // data_type = Info
+                p.extend_from_slice(b"P5\0").unwrap(); // name
+                p
+            },
+        };
+        let r5 = reassembler.push(chunk5).unwrap();
+        assert!(r5.is_none());
+        assert_eq!(reassembler.param_number(), 5);
+        assert_eq!(reassembler.chunks_received(), 1);
+
+        // Now a single-chunk param 6 should auto-reset and complete
+        let info_str: String<MAX_STRING_LEN> = String::try_from("Hello").unwrap();
+        let mut buf = [0u8; 64];
+        let entry6 = ParameterSettingsEntry::new(0xEA, 0xEE, 6, 0, 0, 0x0C, "P6")
+            .unwrap()
+            .add_data(ParameterData::Info { info: info_str });
+        let len6 = entry6.to_bytes(&mut buf).unwrap();
+        let chunk6 = ParameterChunk::from_bytes(&buf[..len6]).unwrap();
+        let r6 = reassembler.push(chunk6).unwrap();
+
+        assert!(r6.is_some());
+        let assembled = r6.unwrap();
+        assert_eq!(assembled.parameter_number, 6);
+        assert_eq!(assembled.name, "P6");
+        if let Some(ParameterData::Info { info }) = &assembled.data {
+            assert_eq!(*info, "Hello");
+        } else {
+            panic!("Expected Info data");
+        }
+    }
+
+    #[test]
+    fn test_reassembler_too_many_chunks() {
+        // Push more than MAX_CHUNKS chunks without completion
+        let mut reassembler = ParameterChunkReassembler::new();
+
+        for i in 0..=MAX_CHUNKS {
+            // u8 conversion is safe because MAX_CHUNKS <= 8
+            let remaining = (MAX_CHUNKS - i) as u8;
+            let chunk = ParameterChunk {
+                dst_addr: 0xEA,
+                src_addr: 0xEE,
+                param_number: 1,
+                chunks_remaining: remaining,
+                payload: {
+                    let mut p: Vec<u8, MAX_CHUNK_PAYLOAD_SIZE> = Vec::new();
+                    p.push(0xAA).unwrap();
+                    // Fill to max but not beyond
+                    for _ in 1..MAX_CHUNK_PAYLOAD_SIZE {
+                        let _ = p.push(0xAA);
+                    }
+                    p
+                },
+            };
+
+            if i < MAX_CHUNKS {
+                // Should accept
+                let result = reassembler.push(chunk).unwrap();
+                // Since chunks_remaining > 0 for first MAX_CHUNKS-1 pushes...
+                if i < MAX_CHUNKS - 1 {
+                    assert!(result.is_none());
+                }
+            } else {
+                // The MAX_CHUNKS-th chunk should overflow
+                let result = reassembler.push(chunk);
+                assert!(result.is_err());
+                // After error, reassembler should be reset to idle
+                assert!(reassembler.is_idle());
+            }
+        }
+    }
+
+    #[test]
+    fn test_reassembler_full_round_trip_via_entry() {
+        // Verify reassembly produces the same result as a single-chunk from_bytes
+        // by comparing a chunked-then-reassembled entry with a directly-parsed entry.
+
+        let options_str: String<MAX_OPTIONS> =
+            String::try_from("250;500;1kHz;2kHz;5kHz;10kHz;25kHz;50kHz;100kHz;200kHz").unwrap();
+        let unit_str: String<MAX_STRING_LEN> = String::try_from("Hz").unwrap();
+
+        // Build full entry
+        let mut full_buf = [0u8; 128];
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 7, 0, 0, 0x09, "Rate")
+            .unwrap()
+            .add_data(ParameterData::TextSelection {
+                options: options_str.clone(),
+                value: 2,
+                min: 0,
+                max: 9,
+                default: 1,
+                unit: unit_str.clone(),
+            });
+        let entry_len = entry.to_bytes(&mut full_buf).unwrap();
+
+        // Direct parse (reference)
+        let direct = ParameterSettingsEntry::from_bytes(&full_buf[..entry_len]).unwrap();
+
+        // Now split into chunks and reassemble
+        // Put the split point at 50 to ensure chunking
+        let split = 4 + 50; // 4-byte header + 50 bytes of entry payload in chunk 0
+
+        let mut chunk0_buf = [0u8; 64];
+        chunk0_buf[0..4].copy_from_slice(&full_buf[0..4]);
+        chunk0_buf[4..split].copy_from_slice(&full_buf[4..split]);
+        chunk0_buf[3] = 1; // chunks_remaining = 1
+
+        let remaining = entry_len - split;
+        let mut chunk1_buf = [0u8; 64];
+        chunk1_buf[0..4].copy_from_slice(&full_buf[0..4]);
+        chunk1_buf[3] = 0; // last chunk
+        chunk1_buf[4..4 + remaining].copy_from_slice(&full_buf[split..entry_len]);
+
+        let mut reassembler = ParameterChunkReassembler::new();
+        let c0 = ParameterChunk::from_bytes(&chunk0_buf[..split]).unwrap();
+        assert!(reassembler.push(c0).unwrap().is_none());
+        let c1 =
+            ParameterChunk::from_bytes(&chunk1_buf[..4 + remaining]).unwrap();
+        let result = reassembler.push(c1).unwrap();
+        assert!(result.is_some());
+
+        let chunked = result.unwrap();
+        assert_eq!(direct, chunked, "Chunked reassembly must match direct parse");
+    }
+
+    #[test]
+    fn test_reassembler_reset_mid_assembly() {
+        let mut reassembler = ParameterChunkReassembler::new();
+        assert!(reassembler.is_idle());
+
+        // Push one chunk of a multi-chunk parameter
+        let chunk = ParameterChunk {
+            dst_addr: 0xEA,
+            src_addr: 0xEE,
+            param_number: 10,
+            chunks_remaining: 2,
+            payload: {
+                let mut p: Vec<u8, MAX_CHUNK_PAYLOAD_SIZE> = Vec::new();
+                p.push(0x00).unwrap();
+                p.push(0x08).unwrap();
+                p.extend_from_slice(b"ABC\0").unwrap();
+                p
+            },
+        };
+        reassembler.push(chunk).unwrap();
+        assert!(!reassembler.is_idle());
+        assert_eq!(reassembler.chunks_received(), 1);
+        assert_eq!(reassembler.param_number(), 10);
+
+        // Reset
+        reassembler.reset();
+        assert!(reassembler.is_idle());
+        assert_eq!(reassembler.chunks_received(), 0);
+        assert!(!reassembler.is_complete());
+
+        // After reset, can start a new parameter
+        let mut buf = [0u8; 64];
+        let entry = ParameterSettingsEntry::new(0xEA, 0xEE, 20, 0, 0, 0x0C, "New")
+            .unwrap()
+            .add_data(ParameterData::Info {
+                info: String::try_from("Fresh start").unwrap(),
+            });
+        let len = entry.to_bytes(&mut buf).unwrap();
+        let new_chunk = ParameterChunk::from_bytes(&buf[..len]).unwrap();
+        let result = reassembler.push(new_chunk).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().parameter_number, 20);
+    }
+
+    #[test]
+    fn test_parameter_chunk_round_trip() {
+        // Round-trip: data -> ParameterChunk -> to_bytes (if available)
+        // ParameterChunk doesn't have to_bytes, but verify from_bytes -> fields consistency
+        let raw: [u8; 10] = [
+            0xEA, 0xEE, // dst, src
+            0x0A, 0x03, // param_number=10, chunks_remaining=3
+            0x01, 0x0B, 0x52, 0x4F, 0x4F, 0x54, // parent=1, data_type=Folder, "ROOT\0"
+        ];
+        let chunk = ParameterChunk::from_bytes(&raw).unwrap();
+        assert_eq!(chunk.dst_addr, 0xEA);
+        assert_eq!(chunk.src_addr, 0xEE);
+        assert_eq!(chunk.param_number, 10);
+        assert_eq!(chunk.chunks_remaining, 3);
+        assert_eq!(chunk.payload.as_slice(), &[0x01, 0x0B, 0x52, 0x4F, 0x4F, 0x54]);
+    }
+
+    #[test]
+    fn test_parameter_chunk_zero_length_payload() {
+        // A chunk with just the 4-byte header and no payload is valid
+        let data: [u8; 4] = [0xEA, 0xEE, 0x01, 0x00];
+        let chunk = ParameterChunk::from_bytes(&data).unwrap();
+        assert!(chunk.payload.is_empty());
+        assert_eq!(chunk.param_number, 1);
+        assert_eq!(chunk.chunks_remaining, 0);
+    }
+
+    #[test]
+    fn test_parameter_chunk_reassembler_new_const() {
+        // Verify that `new` works as a const fn
+        const _REASSEMBLER: ParameterChunkReassembler = ParameterChunkReassembler::new();
+        let r = ParameterChunkReassembler::new();
+        assert!(r.is_idle());
+    }
+
+    #[test]
+    fn test_reassembler_same_param_different_chunks() {
+        // Two chunks for the same parameter arriving in sequence should work
+        let mut reassembler = ParameterChunkReassembler::new();
+
+        let chunk0 = ParameterChunk {
+            dst_addr: 0xEA,
+            src_addr: 0xEE,
+            param_number: 5,
+            chunks_remaining: 1,
+            payload: {
+                let mut p: Vec<u8, MAX_CHUNK_PAYLOAD_SIZE> = Vec::new();
+                p.push(0x00).unwrap(); // parent
+                p.push(0x0A).unwrap(); // data_type = String
+                p.extend_from_slice(b"Name\0").unwrap(); // name
+                p.extend_from_slice(b"Hello").unwrap(); // first part of value
+                p
+            },
+        };
+
+        let chunk1 = ParameterChunk {
+            dst_addr: 0xEA,
+            src_addr: 0xEE,
+            param_number: 5,
+            chunks_remaining: 0,
+            payload: {
+                let mut p: Vec<u8, MAX_CHUNK_PAYLOAD_SIZE> = Vec::new();
+                p.extend_from_slice(b" World\0").unwrap(); // rest of value
+                p.push(20).unwrap(); // max_length
+                p
+            },
+        };
+
+        assert!(reassembler.push(chunk0).unwrap().is_none());
+        assert_eq!(reassembler.chunks_received(), 1);
+        assert_eq!(reassembler.param_number(), 5);
+
+        let result = reassembler.push(chunk1).unwrap();
+        assert!(result.is_some());
+        let entry = result.unwrap();
+        assert_eq!(entry.parameter_number, 5);
+        assert_eq!(entry.name, "Name");
+        if let Some(ParameterData::String { value, max_length }) = &entry.data {
+            assert_eq!(*value, "Hello World");
+            assert_eq!(*max_length, 20);
+        } else {
+            panic!("Expected String data");
+        }
+        assert!(reassembler.is_complete());
     }
 }
