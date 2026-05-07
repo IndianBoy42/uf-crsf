@@ -34,7 +34,6 @@ use serialport::SerialPort;
 use uf_crsf::device::{DeviceManager, DeviceManagerConfig, Parameter};
 use uf_crsf::packets::{write_packet_to_buffer, Packet, PacketAddress, ParameterData};
 use uf_crsf::parser::CrsfParser;
-use uf_crsf::CrsfParsingError;
 
 #[derive(Parser)]
 #[command(name = "uf-crsf-param-tui", about = "CRSF/ELRS parameter browser TUI")]
@@ -137,6 +136,8 @@ struct App {
     params_loaded: bool,
     last_poll: Instant,
     param_request_pending: bool,
+    param_read_retries: u8,
+    param_skip_count: u8,
     next_param_id: u8,
 }
 
@@ -166,6 +167,8 @@ impl App {
             params_loaded: false,
             last_poll: Instant::now(),
             param_request_pending: false,
+            param_read_retries: 0,
+            param_skip_count: 0,
             next_param_id: 0,
         }
     }
@@ -662,6 +665,7 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                                         entry.parameter_number, entry.name
                                     );
                                     app.param_request_pending = false;
+                                    app.param_read_retries = 0;
                                 }
                                 Packet::DeviceInformation(_) => {
                                     // Already discovered in Phase 2
@@ -670,10 +674,24 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                             }
                             mgr.handle_packet(packet);
                         }
-                        Err(e) => {
-                            info!("Param error, retrying");
-                            app.param_request_pending = false;
-                        } 
+                        Err(_e) => {
+                            app.param_read_retries += 1;
+                            if app.param_read_retries >= 3 {
+                                info!(
+                                    "Param read failed after 3 retries, skipping (next_param_id={})",
+                                    app.next_param_id
+                                );
+                                app.param_read_retries = 0;
+                                app.param_skip_count += 1;
+                                app.param_request_pending = false;
+                            } else {
+                                info!(
+                                    "Param error, retrying (attempt {})",
+                                    app.param_read_retries
+                                );
+                                app.param_request_pending = false;
+                            }
+                        }
                     }
                 }
             }
@@ -705,26 +723,43 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                         info!("All {} params loaded", device.parameters.len());
                         app.status_message =
                             format!("All {} parameters loaded", device.parameters.len());
-                    } else if device.parameters.is_empty() && device.parameters_total > 0 {
-                        drop(mgr);
-                        if let Some(pkt) = build_param_read_packet(dev_addr, 0, 0) {
-                            let _ = send_packet_to_serial(port, &pkt);
-                            app.param_request_pending = true;
-                            app.next_param_id = 1;
-                            app.status_message = "Requesting parameters...".to_string();
-                        }
                     } else {
-                        let next_id = device.parameters.len() as u8;
-                        if next_id < device.parameters_total {
+                        // Account for skipped params that failed after 3 retries
+                        let effective_next = (device.parameters.len() as u8)
+                            .saturating_add(app.param_skip_count);
+                        if effective_next < device.parameters_total {
                             drop(mgr);
-                            if let Some(pkt) = build_param_read_packet(dev_addr, next_id, 0) {
+                            if let Some(pkt) =
+                                build_param_read_packet(dev_addr, effective_next, 0)
+                            {
                                 let _ = send_packet_to_serial(port, &pkt);
                                 app.param_request_pending = true;
-                                app.next_param_id = next_id + 1;
-                                app.status_message = format!("Requesting parameter {}...", next_id);
+                                app.next_param_id = effective_next + 1;
+                                app.status_message = format!(
+                                    "Requesting parameter {}...{}",
+                                    effective_next,
+                                    if app.param_skip_count > 0 {
+                                        format!(" ({} skipped)", app.param_skip_count)
+                                    } else {
+                                        String::new()
+                                    }
+                                );
                             }
+                            continue;
+                        } else {
+                            let succeeded = device.parameters.len();
+                            let skipped = app.param_skip_count;
+                            drop(mgr);
+                            app.params_loaded = true;
+                            app.status_message = format!(
+                                "Parameters enumerated ({} loaded, {} skipped)",
+                                succeeded, skipped
+                            );
+                            info!(
+                                "Parameter enumeration complete: {} loaded, {} skipped",
+                                succeeded, skipped
+                            );
                         }
-                        continue;
                     }
                 }
             }
