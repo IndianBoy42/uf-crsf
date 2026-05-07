@@ -13,7 +13,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use log::{trace, debug, error, info, warn, LevelFilter, Log, Metadata, Record};
+use log::{debug, error, info, trace, warn, LevelFilter, Log, Metadata, Record};
 
 use clap::Parser;
 use crossterm::{
@@ -34,13 +34,14 @@ use serialport::SerialPort;
 use uf_crsf::device::{DeviceManager, DeviceManagerConfig, Parameter};
 use uf_crsf::packets::{write_packet_to_buffer, Packet, PacketAddress, ParameterData};
 use uf_crsf::parser::CrsfParser;
+use uf_crsf::CrsfParsingError;
 
 #[derive(Parser)]
 #[command(name = "uf-crsf-param-tui", about = "CRSF/ELRS parameter browser TUI")]
 struct Args {
     #[arg(default_value = "/dev/ttyACM0", help = "Serial port path")]
     port: String,
-    #[arg(long, default_value = "400000", help = "Serial baud rate")]
+    #[arg(long, default_value = "921600", help = "Serial baud rate")]
     baud: u32,
     #[arg(
         long = "poll-ms",
@@ -669,7 +670,10 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                             }
                             mgr.handle_packet(packet);
                         }
-                        Err(e) => warn!("Packet parse error: {:?}", e),
+                        Err(e) => {
+                            info!("Param error, retrying");
+                            app.param_request_pending = false;
+                        } 
                     }
                 }
             }
@@ -767,7 +771,7 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                             app.list_state.select(Some(current.saturating_sub(1)));
                         }
                         KeyCode::Enter | KeyCode::Char(' ') => handle_select(app),
-                        KeyCode::Backspace => app.go_back(),
+                        KeyCode::Left => app.go_back(),
                         KeyCode::Char('r') => {
                             if let Some(dev_addr) = app.selected_device {
                                 app.params_loaded = false;
