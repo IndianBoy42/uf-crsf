@@ -737,12 +737,13 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                     parser.iter_packets(&read_buf[..bytes_read]).collect()
                 };
 
-                // Phase 2: process packets — extract data before borrowing mgr
+                // Phase 2: process packets
                 for packet_result in packets {
                     match packet_result {
                         Ok(ref packet) => {
                             debug!("Parsed packet: {:?}", packet);
-                            // Extract info that mutates app before we borrow mgr
+
+                            // Pre-extract info that needs &mut app before we borrow mgr
                             match packet {
                                 Packet::ParameterSettingsEntry(entry)
                                     if entry.chunks_remaining == 0 =>
@@ -756,13 +757,62 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                                         ent.retries = 0;
                                     }
                                 }
+                                Packet::ParameterChunk(chunk) if chunk.chunks_remaining == 0 => {
+                                    // Final chunk of a chunked parameter — reassembly may
+                                    // complete inside handle_packet below
+                                    info!("Param {} final chunk received", chunk.param_number);
+                                    app.param_request_pending = false;
+                                }
+                                Packet::ParameterWrite(write) => {
+                                    // Device echoes the write back with the updated value
+                                    let pid = write.parameter_number;
+                                    info!("Param {} write acknowledged", pid);
+                                    app.param_request_pending = false;
+                                    if let Some(ent) = app.param_entries.get_mut(&pid) {
+                                        ent.needs_reread = false;
+                                    }
+                                }
                                 Packet::DeviceInformation(info) => {
                                     app.ensure_param_entries(info.parameters_total);
                                 }
                                 _ => {}
                             }
-                            let mut mgr = app.manager.lock().unwrap();
-                            mgr.handle_packet(packet);
+
+                            // Run handle_packet and detect if new params appeared
+                            // (handles both single-chunk and multi-chunk assembly)
+                            let newly_loaded: Vec<u8> = {
+                                let mut mgr = app.manager.lock().unwrap();
+                                mgr.handle_packet(packet);
+                                // Scan for parameters that the DeviceManager loaded but
+                                // our param_entries still thinks are pending
+                                if let Some(dev_addr) = app.selected_device {
+                                    if let Some(device) = mgr.get_device(dev_addr) {
+                                        device
+                                            .parameters
+                                            .keys()
+                                            .copied()
+                                            .filter(|pid| {
+                                                app.param_entries
+                                                    .get(pid)
+                                                    .is_some_and(|e| e.pending)
+                                            })
+                                            .collect()
+                                    } else {
+                                        Vec::new()
+                                    }
+                                } else {
+                                    Vec::new()
+                                }
+                            };
+
+                            for pid in newly_loaded {
+                                info!("Param {} loaded (chunked)", pid);
+                                if let Some(ent) = app.param_entries.get_mut(&pid) {
+                                    ent.pending = false;
+                                    ent.needs_reread = false;
+                                    ent.retries = 0;
+                                }
+                            }
                         }
                         Err(_e) => {
                             // Find the param we were waiting for and bump its retry counter
@@ -798,9 +848,13 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
         {
             let mut mgr = app.manager.lock().unwrap();
             let retry_packets = mgr.process_timeouts();
+            let auto_output = mgr.drain_output();
             drop(mgr);
             for retry in retry_packets {
                 let _ = send_packet_to_serial(port, &retry);
+            }
+            for pkt in auto_output {
+                let _ = send_packet_to_serial(port, &pkt);
             }
         }
 
@@ -821,7 +875,10 @@ fn run_tui(app: &mut App, port: &mut Box<dyn SerialPort>) -> io::Result<()> {
                             .is_some_and(|e| e.needs_reread);
                         let _ = send_packet_to_serial(port, &pkt);
                         app.param_request_pending = true;
-                        app.params_loaded = false;
+                        // Only flip params_loaded during initial scan, not rereads
+                        if !is_reread && !app.params_loaded {
+                            app.params_loaded = false;
+                        }
                         app.status_message = if is_reread {
                             format!("Rereading parameter {} after write...", next_id)
                         } else {
@@ -1048,7 +1105,6 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
                         entry.needs_reread = true;
                         entry.pending = true;
                     }
-                    app.params_loaded = false;
                     app.param_request_pending = false;
                     app.last_poll = Instant::now();
                 }

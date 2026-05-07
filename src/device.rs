@@ -1586,9 +1586,7 @@ mod tests {
             "Chunked",
         )
         .unwrap()
-        .add_data(ParameterData::Info {
-            info: long_info,
-        });
+        .add_data(ParameterData::Info { info: long_info });
 
         // Serialize and split at byte 54 (50 bytes of entry payload in chunk 0)
         let mut full_buf = [0u8; 128];
@@ -1726,11 +1724,11 @@ mod tests {
         // Pending request for param 2 should have been removed.
         // A new request for param 1 (auto-enqueued via enqueue_next_parameter)
         // may remain since parameters.len() < parameters_total.
-        let still_has_param2 = manager
-            .pending_requests
-            .iter()
-            .any(|r| r.parameter_id == 2);
-        assert!(!still_has_param2, "Pending request for param 2 must be removed");
+        let still_has_param2 = manager.pending_requests.iter().any(|r| r.parameter_id == 2);
+        assert!(
+            !still_has_param2,
+            "Pending request for param 2 must be removed"
+        );
     }
 
     #[test]
