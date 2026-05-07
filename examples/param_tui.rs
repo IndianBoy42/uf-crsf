@@ -11,8 +11,10 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use log::{debug, error, info, warn};
+
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -32,6 +34,7 @@ use uf_crsf::parser::CrsfParser;
 
 const BAUD_RATE: u32 = 400_000;
 const PARAM_POLL_INTERVAL_MS: u32 = 200;
+const DISCOVERY_TIMEOUT_SECS: u64 = 8;
 
 struct App {
     manager: Arc<Mutex<DeviceManager>>,
@@ -50,6 +53,8 @@ struct App {
     device_discovering: bool,
     param_request_pending: bool,
     next_param_id: u8,
+    discovery_start: Instant,
+    discovery_timed_out: bool,
 }
 
 impl App {
@@ -78,6 +83,8 @@ impl App {
             device_discovering: true,
             param_request_pending: false,
             next_param_id: 0,
+            discovery_start: Instant::now(),
+            discovery_timed_out: false,
         }
     }
 
@@ -233,10 +240,7 @@ impl App {
                 ..
             }) => {
                 lines.push(Line::from("Type: TextSelection"));
-                lines.push(Line::from(format!(
-                    "Current: {} (index {})",
-                    value, value
-                )));
+                lines.push(Line::from(format!("Current: {} (index {})", value, value)));
                 lines.push(Line::from("Options:"));
                 for (i, opt) in options.split(';').enumerate() {
                     let marker = if i as u8 == *value { " <<<" } else { "" };
@@ -292,10 +296,7 @@ impl App {
             }
             Some(ParameterData::Folder { children }) => {
                 lines.push(Line::from("Type: Folder"));
-                lines.push(Line::from(format!(
-                    "Children: {:?}",
-                    children.as_slice()
-                )));
+                lines.push(Line::from(format!("Children: {:?}", children.as_slice())));
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
                     "Press Enter to navigate into",
@@ -318,10 +319,12 @@ impl App {
     }
 }
 
-fn send_packet_to_serial(
-    port: &mut Box<dyn SerialPort>,
-    packet_bytes: &[u8],
-) -> io::Result<()> {
+fn send_packet_to_serial(port: &mut Box<dyn SerialPort>, packet_bytes: &[u8]) -> io::Result<()> {
+    debug!(
+        "TX: sending {} bytes: {:02X?}",
+        packet_bytes.len(),
+        packet_bytes
+    );
     port.write_all(packet_bytes)?;
     port.flush()?;
     Ok(())
@@ -329,9 +332,17 @@ fn send_packet_to_serial(
 
 fn read_from_serial(port: &mut Box<dyn SerialPort>, buf: &mut [u8]) -> io::Result<usize> {
     match port.read(buf) {
-        Ok(n) => Ok(n),
+        Ok(n) => {
+            if n > 0 {
+                debug!("RX: read {} bytes", n);
+            }
+            Ok(n)
+        }
         Err(ref e) if e.kind() == io::ErrorKind::TimedOut => Ok(0),
-        Err(e) => Err(e),
+        Err(e) => {
+            warn!("RX read error: {}", e);
+            Err(e)
+        }
     }
 }
 
@@ -344,11 +355,7 @@ fn build_ping_packet() -> Option<Vec<u8>> {
     Some(buffer[..len].to_vec())
 }
 
-fn build_param_read_packet(
-    device_addr: PacketAddress,
-    param_id: u8,
-    chunk: u8,
-) -> Option<Vec<u8>> {
+fn build_param_read_packet(device_addr: PacketAddress, param_id: u8, chunk: u8) -> Option<Vec<u8>> {
     use uf_crsf::packets::ParameterRead;
     let read = ParameterRead::new(
         device_addr as u8,
@@ -385,29 +392,85 @@ fn try_packet_addr(v: u8) -> Option<PacketAddress> {
     PacketAddress::try_from_primitive(v).ok()
 }
 
+/// RAII guard that restores terminal state on drop.
+///
+/// Ensures raw mode and alternate screen are cleaned up on any exit path:
+/// normal return, error return, panic, or Ctrl+C (when it generates SIGINT).
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter() -> io::Result<Self> {
+        enable_raw_mode()?;
+        execute!(io::stdout(), EnterAlternateScreen)?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+    }
+}
+
 fn run(app: &mut App) -> io::Result<()> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    let _guard = TerminalGuard::enter()?;
+
+    let mut port: Box<dyn SerialPort> = match serialport::new(&app.port_path, BAUD_RATE)
+        .timeout(Duration::from_millis(50))
+        .open()
+    {
+        Ok(p) => p,
+        Err(e) => {
+            let hint = match e.kind() {
+                serialport::ErrorKind::NoDevice => format!(
+                    "Serial port '{}' not found or unavailable.\n\n\
+                     Possible causes:\n\
+                     - The device is not plugged in or not powered on\n\
+                     - The device uses a different port (check with: ls /dev/ttyACM* /dev/ttyUSB*)\n\
+                     - Permission denied (fix with: sudo usermod -aG dialout $USER)\n\
+                     - The device is in use by another process\n\
+                     - You need to specify a different port: cargo run --example param_tui -- <PORT>",
+                    app.port_path
+                ),
+                serialport::ErrorKind::InvalidInput => format!(
+                    "Invalid serial port configuration for '{}'.\n\n\
+                     The port name or parameters may be incorrect.\n\
+                     Try: cargo run --example param_tui -- /dev/ttyACM0",
+                    app.port_path
+                ),
+                serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied) => format!(
+                    "Permission denied opening '{}'.\n\n\
+                     Fix by adding your user to the dialout group:\n\
+                     sudo usermod -aG dialout $USER\n\
+                     Then log out and back in (or run: newgrp dialout)",
+                    app.port_path
+                ),
+                _ => format!(
+                    "Failed to open '{}' ({}).\n\n\
+                     Possible causes:\n\
+                     - Device not plugged in or not powered on\n\
+                     - Wrong port path (check with: ls /dev/ttyACM* /dev/ttyUSB*)\n\
+                     - Permission denied (fix with: sudo usermod -aG dialout $USER)\n\
+                     - Device in use by another process",
+                    app.port_path, e
+                ),
+            };
+            error!("{}", hint);
+            return Err(io::Error::other(hint));
+        }
+    };
+
+    let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut port: Box<dyn SerialPort> = serialport::new(&app.port_path, BAUD_RATE)
-        .timeout(Duration::from_millis(50))
-        .open()
-        .map_err(|e| {
-            let _ = disable_raw_mode();
-            let _ = execute!(io::stdout(), LeaveAlternateScreen);
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("Failed to open {}: {}", app.port_path, e),
-            )
-        })?;
-
     app.connected = true;
-    app.status_message = format!("Connected to {} @ {} baud", app.port_path, BAUD_RATE);
+    app.discovery_start = Instant::now();
+    info!("Serial port {} opened at {} baud", app.port_path, BAUD_RATE);
 
     if let Some(ping) = build_ping_packet() {
+        info!("Sending initial device ping");
         let _ = send_packet_to_serial(&mut port, &ping);
     }
 
@@ -427,35 +490,54 @@ fn run(app: &mut App) -> io::Result<()> {
             Ok(bytes_read) if bytes_read > 0 => {
                 let mut parser = app.parser.lock().unwrap();
                 let mut mgr = app.manager.lock().unwrap();
-                for packet in parser
-                    .iter_packets(&read_buf[..bytes_read])
-                    .flatten()
-                {
-                    match &packet {
-                        Packet::DeviceInformation(info) => {
-                            app.selected_device = Some(
-                                try_packet_addr(info.src_addr)
-                                    .unwrap_or(PacketAddress::Transmitter),
-                            );
-                            app.device_discovering = false;
-                            app.params_loaded = false;
-                            app.next_param_id = 0;
-                            app.param_request_pending = false;
-                            app.status_message = format!(
-                                "Device found: {} (0x{:02X}) - {} params",
-                                info.device_name(),
-                                info.src_addr,
-                                info.parameters_total
-                            );
+                for packet_result in parser.iter_packets(&read_buf[..bytes_read]) {
+                    match packet_result {
+                        Ok(ref packet) => {
+                            debug!("Parsed packet: {:?}", packet);
+                            match &packet {
+                                Packet::DeviceInformation(info) => {
+                                    info!(
+                                        "Device discovered: {} (0x{:02X}), {} parameters, serial {:?}, hw_id {}, fw_id {}",
+                                        info.device_name(),
+                                        info.src_addr,
+                                        info.parameters_total,
+                                        info.serial_number,
+                                        info.hardware_id,
+                                        info.firmware_id,
+                                    );
+                                    app.selected_device = Some(
+                                        try_packet_addr(info.src_addr)
+                                            .unwrap_or(PacketAddress::Transmitter),
+                                    );
+                                    app.device_discovering = false;
+                                    app.params_loaded = false;
+                                    app.next_param_id = 0;
+                                    app.param_request_pending = false;
+                                    app.discovery_timed_out = false;
+                                    app.status_message = format!(
+                                        "Device found: {} (0x{:02X}) - {} params",
+                                        info.device_name(),
+                                        info.src_addr,
+                                        info.parameters_total
+                                    );
+                                }
+                                Packet::ParameterSettingsEntry(entry)
+                                    if entry.chunks_remaining == 0 =>
+                                {
+                                    info!(
+                                        "Parameter {} loaded: {} (chunks_remaining {})",
+                                        entry.parameter_number, entry.name, entry.chunks_remaining
+                                    );
+                                    app.param_request_pending = false;
+                                }
+                                _ => {}
+                            }
+                            mgr.handle_packet(packet);
                         }
-                        Packet::ParameterSettingsEntry(entry)
-                            if entry.chunks_remaining == 0 =>
-                        {
-                            app.param_request_pending = false;
+                        Err(e) => {
+                            warn!("Packet parse error: {:?}", e);
                         }
-                        _ => {}
                     }
-                    mgr.handle_packet(&packet);
                 }
             }
             _ => {}
@@ -483,14 +565,19 @@ fn run(app: &mut App) -> io::Result<()> {
                 if let Some(device) = mgr.get_device(dev_addr) {
                     if device.parameters_loaded {
                         app.params_loaded = true;
-                        app.status_message = format!(
-                            "All {} parameters loaded",
-                            device.parameters.len()
+                        info!(
+                            "All {} parameters loaded for device 0x{:02X}",
+                            device.parameters.len(),
+                            dev_addr as u8
                         );
-                    } else if device.parameters.is_empty()
-                        && device.parameters_total > 0
-                    {
+                        app.status_message =
+                            format!("All {} parameters loaded", device.parameters.len());
+                    } else if device.parameters.is_empty() && device.parameters_total > 0 {
                         drop(mgr);
+                        info!(
+                            "Requesting first parameter from device 0x{:02X}",
+                            dev_addr as u8
+                        );
                         if let Some(pkt) = build_param_read_packet(dev_addr, 0, 0) {
                             let _ = send_packet_to_serial(&mut port, &pkt);
                             app.param_request_pending = true;
@@ -501,14 +588,15 @@ fn run(app: &mut App) -> io::Result<()> {
                         let next_id = device.parameters.len() as u8;
                         if next_id < device.parameters_total {
                             drop(mgr);
-                            if let Some(pkt) =
-                                build_param_read_packet(dev_addr, next_id, 0)
-                            {
+                            debug!(
+                                "Requesting parameter {} from device 0x{:02X}",
+                                next_id, dev_addr as u8
+                            );
+                            if let Some(pkt) = build_param_read_packet(dev_addr, next_id, 0) {
                                 let _ = send_packet_to_serial(&mut port, &pkt);
                                 app.param_request_pending = true;
                                 app.next_param_id = next_id + 1;
-                                app.status_message =
-                                    format!("Requesting parameter {}...", next_id);
+                                app.status_message = format!("Requesting parameter {}...", next_id);
                             }
                         }
                         continue;
@@ -522,10 +610,29 @@ fn run(app: &mut App) -> io::Result<()> {
             && now.duration_since(app.last_poll) >= Duration::from_secs(2)
         {
             app.last_poll = now;
+            let elapsed = now.duration_since(app.discovery_start).as_secs();
+
+            if !app.discovery_timed_out && elapsed >= DISCOVERY_TIMEOUT_SECS {
+                app.discovery_timed_out = true;
+                warn!(
+                    "No CRSF device responded after {}s. Continuing to retry...",
+                    elapsed
+                );
+            }
+
             if let Some(ping) = build_ping_packet() {
+                debug!("Sending discovery ping (attempt, {}s elapsed)", elapsed);
                 let _ = send_packet_to_serial(&mut port, &ping);
             }
-            app.status_message = "Discovering devices... (ping sent)".to_string();
+
+            if app.discovery_timed_out {
+                app.status_message = format!("No device responding ({}s) - retrying...", elapsed);
+            } else {
+                app.status_message = format!(
+                    "Discovering devices... ({}/{}s)",
+                    elapsed, DISCOVERY_TIMEOUT_SECS
+                );
+            }
         }
 
         while event::poll(Duration::from_millis(0))? {
@@ -552,26 +659,27 @@ fn run(app: &mut App) -> io::Result<()> {
                         _ => {}
                     }
                 } else {
+                    if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+                        return Ok(());
+                    }
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => {
-                            disable_raw_mode()?;
-                            execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
                             return Ok(());
                         }
                         KeyCode::Down => {
                             let params = app.get_current_parameters();
-                            let max =
-                                if params.is_empty() { 0 } else { params.len() - 1 };
-                            let current =
-                                app.list_state.selected().unwrap_or(0);
+                            let max = if params.is_empty() {
+                                0
+                            } else {
+                                params.len() - 1
+                            };
+                            let current = app.list_state.selected().unwrap_or(0);
                             app.list_state
                                 .select(Some(current.saturating_add(1).min(max)));
                         }
                         KeyCode::Up => {
-                            let current =
-                                app.list_state.selected().unwrap_or(0);
-                            app.list_state
-                                .select(Some(current.saturating_sub(1)));
+                            let current = app.list_state.selected().unwrap_or(0);
+                            app.list_state.select(Some(current.saturating_sub(1)));
                         }
                         KeyCode::Enter | KeyCode::Char(' ') => {
                             handle_select(app);
@@ -584,14 +692,10 @@ fn run(app: &mut App) -> io::Result<()> {
                                 app.params_loaded = false;
                                 app.param_request_pending = false;
                                 app.next_param_id = 0;
-                                app.last_poll =
-                                    Instant::now() - Duration::from_secs(1);
-                                app.status_message =
-                                    "Refreshing parameters...".to_string();
+                                app.last_poll = Instant::now() - Duration::from_secs(1);
+                                app.status_message = "Refreshing parameters...".to_string();
                                 let mut mgr = app.manager.lock().unwrap();
-                                if let Some(device) =
-                                    mgr.get_device_mut(dev_addr)
-                                {
+                                if let Some(device) = mgr.get_device_mut(dev_addr) {
                                     device.parameters.clear();
                                     device.parameters_loaded = false;
                                 }
@@ -648,7 +752,10 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
 
     let write_data: Option<Vec<u8>> = match &param.data {
         Some(ParameterData::Float {
-            min, max, decimal_point, ..
+            min,
+            max,
+            decimal_point,
+            ..
         }) => {
             let min = *min;
             let max = *max;
@@ -675,32 +782,25 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
                 }
             }
         }
-        Some(ParameterData::TextSelection { options, min, max, .. }) => {
+        Some(ParameterData::TextSelection {
+            options, min, max, ..
+        }) => {
             let min = *min;
             let max = *max;
             match input.parse::<u8>() {
                 Ok(idx) if idx >= min && idx <= max => Some(vec![idx]),
                 Ok(idx) => {
-                    app.status_message = format!(
-                        "Index {} out of range [{}, {}]",
-                        idx, min, max
-                    );
+                    app.status_message = format!("Index {} out of range [{}, {}]", idx, min, max);
                     return;
                 }
                 Err(_) => {
                     let opts: Vec<&str> = options.split(';').collect();
-                    if let Some(pos) = opts
-                        .iter()
-                        .position(|o| o.eq_ignore_ascii_case(&input))
-                    {
+                    if let Some(pos) = opts.iter().position(|o| o.eq_ignore_ascii_case(&input)) {
                         let pos_u8 = pos as u8;
                         if pos_u8 >= min && pos_u8 <= max {
                             Some(vec![pos_u8])
                         } else {
-                            app.status_message = format!(
-                                "Option '{}' out of range",
-                                input
-                            );
+                            app.status_message = format!("Option '{}' out of range", input);
                             return;
                         }
                     } else {
@@ -720,14 +820,17 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
 
     if let Some(data) = write_data {
         let pid = *param_id;
+        info!(
+            "Writing parameter {} ({} bytes) to device 0x{:02X}",
+            pid,
+            data.len(),
+            dev_addr as u8
+        );
         if let Some(pkt) = build_param_write_packet(dev_addr, pid, &data) {
             match send_packet_to_serial(port, &pkt) {
                 Ok(()) => {
-                    app.status_message = format!(
-                        "Sent write for param {} ({} bytes)",
-                        pid,
-                        data.len()
-                    );
+                    app.status_message =
+                        format!("Sent write for param {} ({} bytes)", pid, data.len());
                     app.params_loaded = false;
                     app.param_request_pending = false;
                     app.last_poll = Instant::now();
@@ -746,14 +849,10 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
 }
 
 fn ui(f: &mut Frame, app: &App) {
-    let chunks = Layout::vertical([Constraint::Min(3), Constraint::Length(3)])
-        .split(f.area());
+    let chunks = Layout::vertical([Constraint::Min(3), Constraint::Length(3)]).split(f.area());
 
-    let main_chunks = Layout::horizontal([
-        Constraint::Percentage(55),
-        Constraint::Percentage(45),
-    ])
-    .split(chunks[0]);
+    let main_chunks = Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(chunks[0]);
 
     draw_param_list(f, app, main_chunks[0]);
     draw_detail_panel(f, app, main_chunks[1]);
@@ -816,12 +915,7 @@ fn draw_param_list(f: &mut Frame, app: &App, area: Rect) {
         .block(Block::default().borders(Borders::ALL).title(title))
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
-    StatefulWidget::render(
-        list,
-        area,
-        f.buffer_mut(),
-        &mut app.list_state.clone(),
-    );
+    StatefulWidget::render(list, area, f.buffer_mut(), &mut app.list_state.clone());
 }
 
 fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
@@ -832,16 +926,98 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         let (_, param) = &params[selected];
         App::format_param_detail(param)
     } else if app.selected_device.is_none() {
-        vec![
+        let elapsed = Instant::now().duration_since(app.discovery_start).as_secs();
+
+        let mut lines = vec![
             Line::from(""),
             Line::from(Span::styled(
-                "No device discovered yet",
-                Style::default().add_modifier(Modifier::BOLD),
+                if app.discovery_timed_out {
+                    "No device responding"
+                } else {
+                    "Discovering devices..."
+                },
+                Style::default()
+                    .fg(if app.discovery_timed_out {
+                        Color::Red
+                    } else {
+                        Color::Yellow
+                    })
+                    .add_modifier(Modifier::BOLD),
             )),
+            Line::from(format!("Attempting for {}s (ping every 2s)", elapsed)),
             Line::from(""),
-            Line::from("Make sure your ELRS TX module is connected"),
-            Line::from("and the serial port path is correct."),
-        ]
+        ];
+
+        if app.discovery_timed_out {
+            lines.push(Line::from(Span::styled(
+                "Troubleshooting:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " 1. Device not powered on",
+                Style::default().fg(Color::White),
+            )));
+            lines.push(Line::from(Span::raw(
+                "    Make sure your ELRS TX module is powered",
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " 2. Wrong serial port",
+                Style::default().fg(Color::White),
+            )));
+            lines.push(Line::from(Span::raw(format!(
+                "    Current: {} (try: ls /dev/ttyACM* /dev/ttyUSB*)",
+                app.port_path
+            ))));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " 3. Wrong baud rate",
+                Style::default().fg(Color::White),
+            )));
+            lines.push(Line::from(Span::raw(format!(
+                "    Current: {} (ELRS expects 400000)",
+                BAUD_RATE
+            ))));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " 4. Not a CRSF/ELRS device",
+                Style::default().fg(Color::White),
+            )));
+            lines.push(Line::from(Span::raw(
+                "    Verify the device speaks CRSF protocol",
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " 5. Permission denied",
+                Style::default().fg(Color::White),
+            )));
+            lines.push(Line::from(Span::raw(
+                "    Fix: sudo usermod -aG dialout $USER",
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Retrying automatically... Press q to quit.",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            lines.push(Line::from(Span::raw(
+                "Waiting for device to respond to ping...",
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Make sure your ELRS TX module is connected",
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(Line::from(Span::styled(
+                "and the serial port path is correct.",
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+
+        lines
     } else if !app.params_loaded {
         vec![
             Line::from(""),
@@ -858,11 +1034,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let detail = Paragraph::new(content)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Detail "),
-        )
+        .block(Block::default().borders(Borders::ALL).title(" Detail "))
         .wrap(Wrap { trim: true });
 
     f.render_widget(detail, area);
@@ -910,15 +1082,12 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         "No device".to_string()
     };
 
-    let conn_indicator = if app.connected {
-        "CONNECTED"
+    let (conn_indicator, conn_style) = if app.selected_device.is_some() {
+        ("DEVICE FOUND", Style::default().fg(Color::Green))
+    } else if app.connected {
+        ("PORT OPEN", Style::default().fg(Color::Yellow))
     } else {
-        "DISCONNECTED"
-    };
-    let conn_style = if app.connected {
-        Style::default().fg(Color::Green)
-    } else {
-        Style::default().fg(Color::Red)
+        ("DISCONNECTED", Style::default().fg(Color::Red))
     };
 
     let line = Line::from(vec![
@@ -932,27 +1101,31 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ),
         Span::raw(" | "),
         Span::styled(
-            "q:Quit  \u{2191}\u{2193}:Nav  Enter:Edit  Backspace:Back  r:Refresh",
+            "q/Ctrl-C:Quit  \u{2191}\u{2193}:Nav  Enter:Edit  Backspace:Back  r:Refresh",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
 
-    let status =
-        Paragraph::new(line).block(Block::default().borders(Borders::ALL));
+    let status = Paragraph::new(line).block(Block::default().borders(Borders::ALL));
     f.render_widget(status, area);
 }
 
 fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+        .format_timestamp_millis()
+        .init();
+
     let port_path = env::args()
         .nth(1)
         .unwrap_or_else(|| "/dev/ttyACM0".to_string());
 
+    info!("Starting CRSF Parameter TUI on {}", port_path);
+
     let mut app = App::new(port_path);
 
     if let Err(e) = run(&mut app) {
+        error!("Fatal error: {}", e);
         eprintln!("Error: {}", e);
-        let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen);
         std::process::exit(1);
     }
 }
