@@ -1054,15 +1054,15 @@ fn apply_edit(app: &mut App, port: &mut Box<dyn SerialPort>) {
                 Ok(()) => {
                     app.status_message =
                         format!("Sent write for param {} ({} bytes)", pid, data.len());
-                    // Request a reread of this parameter to confirm the new value.
-                    // We send it immediately via the DeviceManager so chunk sequencing
-                    // is handled consistently.
-                    if let Some(reread_pkt) = app
-                        .manager
-                        .lock()
-                        .unwrap()
-                        .request_parameter(dev_addr, pid, 0)
-                    {
+                    // Remove the stale cached value so the reread response isn't
+                    // rejected as a "stale chunk for already-loaded param".
+                    let mut mgr = app.manager.lock().unwrap();
+                    if let Some(device) = mgr.get_device_mut(dev_addr) {
+                        device.parameters.remove(&pid);
+                        device.parameters_loaded = false;
+                    }
+                    if let Some(reread_pkt) = mgr.request_parameter(dev_addr, pid, 0) {
+                        drop(mgr);
                         let _ = send_packet_to_serial(port, &reread_pkt);
                         app.param_request_pending = true;
                         if let Some(entry) = app.param_entries.get_mut(&pid) {
@@ -1102,12 +1102,13 @@ fn execute_command(app: &mut App, port: &mut Box<dyn SerialPort>) {
         match send_packet_to_serial(port, &pkt) {
             Ok(()) => {
                 app.status_message = format!("Command {} sent", pid);
-                if let Some(reread_pkt) = app
-                    .manager
-                    .lock()
-                    .unwrap()
-                    .request_parameter(dev_addr, pid, 0)
-                {
+                let mut mgr = app.manager.lock().unwrap();
+                if let Some(device) = mgr.get_device_mut(dev_addr) {
+                    device.parameters.remove(&pid);
+                    device.parameters_loaded = false;
+                }
+                if let Some(reread_pkt) = mgr.request_parameter(dev_addr, pid, 0) {
+                    drop(mgr);
                     let _ = send_packet_to_serial(port, &reread_pkt);
                     app.param_request_pending = true;
                     if let Some(entry) = app.param_entries.get_mut(&pid) {

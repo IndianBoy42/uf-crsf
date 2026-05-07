@@ -1342,26 +1342,53 @@ impl DeviceManager {
                     let _ = self.pending_requests.swap_remove(i);
                     continue;
                 } else {
-                    // Retry the request
-                    #[cfg(feature = "logging")]
-                    debug!(
-                        "device: retrying param {} chunk={} on {:?} (retry {}/{})",
-                        req.parameter_id,
-                        req.chunk_number,
-                        req.device_addr,
-                        req.retries + 1,
-                        self.config.retry_count
-                    );
-                    if let Some(packet) =
-                        self.request_parameter(req.device_addr, req.parameter_id, req.chunk_number)
-                    {
-                        // Update retry count
-                        if let Some(pending) = self.pending_requests.get_mut(i) {
-                            pending.retries += 1;
-                            pending.timestamp = current_time;
-                        }
+                    // Retry the request — update the existing entry in-place instead
+                    // of calling request_parameter(), which would push a duplicate
+                    // PendingRequest and cause exponential retry explosion.
+                    let (param_id, chunk_number, device_addr) = {
+                        let req = &self.pending_requests[i];
+                        (req.parameter_id, req.chunk_number, req.device_addr)
+                    };
 
-                        let _ = retry_packets.push(packet);
+                    #[cfg(feature = "logging")]
+                    {
+                        let retries = self.pending_requests[i].retries;
+                        debug!(
+                            "device: retrying param {} chunk={} on {:?} (retry {}/{})",
+                            param_id,
+                            chunk_number,
+                            device_addr,
+                            retries + 1,
+                            self.config.retry_count
+                        );
+                    }
+
+                    // Build the retry packet without touching pending_requests
+                    let packet = ParameterRead::new(
+                        device_addr as u8,
+                        self.own_address as u8,
+                        param_id,
+                        chunk_number,
+                    )
+                    .ok()
+                    .and_then(|read| {
+                        let mut buffer = [0u8; constants::CRSF_MAX_PACKET_SIZE];
+                        let len = crate::packets::write_packet_to_buffer(
+                            &mut buffer,
+                            device_addr,
+                            &read,
+                        )
+                        .ok()?;
+                        let mut vec = Vec::new();
+                        vec.extend_from_slice(&buffer[..len]).ok()?;
+                        Some(vec)
+                    });
+
+                    if let Some(pkt) = packet {
+                        let pending = &mut self.pending_requests[i];
+                        pending.retries += 1;
+                        pending.timestamp = current_time;
+                        let _ = retry_packets.push(pkt);
                     }
                 }
             }
