@@ -915,13 +915,13 @@ impl DeviceManager {
                 // More chunks expected — request the next one
                 self.enqueue_next_chunk(device_addr, chunk);
             }
-            Err(e) => {
+            Err(_e) => {
                 // Reassembly failed — insert a placeholder so this ID is marked as
                 // visited and enumeration advances past it without stalling.
                 #[cfg(feature = "logging")]
                 warn!(
                     "device: chunk reassembly failed for param {} on {:?}: {:?}",
-                    chunk.param_number, device_addr, e
+                    chunk.param_number, device_addr, _e
                 );
                 self.chunk_reassembler.reset();
                 self.remove_pending_request(device_addr, chunk.param_number);

@@ -30,3 +30,14 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: lcov.info
         fail_ci_if_error: true
+
+  no_std:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install just
+      run: sudo apt-get update && sudo apt install -y just
+    - name: Add ARM target
+      run: rustup target add thumbv7em-none-eabihf
+    - name: Verify no_std compilation
+      run: just check-no-std

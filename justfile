@@ -5,6 +5,7 @@ default:
 alias b := build
 alias t := test
 alias l := lint
+alias cns := check-no-std
 
 # Run cargo doc
 doc:
@@ -76,9 +77,19 @@ test args='':
 cov:
   cargo llvm-cov --open
 
+# Verify no_std cross-compilation for embedded targets
+check-no-std:
+  cargo build --target thumbv7em-none-eabihf --no-default-features
+  cargo build --target thumbv7em-none-eabihf --features defmt
+  cargo build --target thumbv7em-none-eabihf --features logging
+  cargo build --target thumbv7em-none-eabihf --features embedded_io
+  cargo build --target thumbv7em-none-eabihf --features embedded_io_async
+  cargo clippy --target thumbv7em-none-eabihf --no-default-features -- -D warnings
+
 # Run same testing commands as on CI server
 ci:
   just lint
   just build
+  just check-no-std
   cargo test --all-features
   cargo test --examples --features=embedded_io_async,embedded_io

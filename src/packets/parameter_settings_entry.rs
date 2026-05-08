@@ -430,6 +430,7 @@ impl TryFrom<u8> for ParameterDataType {
 /// - **String**: Write UTF-8 bytes without null terminator
 /// - **Command**: Write any byte (e.g., [0]) to trigger
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum ParameterData {
     /// Numeric floating point value with constraints.
     ///
