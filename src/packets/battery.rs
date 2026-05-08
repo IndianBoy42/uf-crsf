@@ -1,6 +1,7 @@
 use crate::packets::CrsfPacket;
 use crate::packets::PacketType;
 use crate::CrsfParsingError;
+use libm::roundf;
 
 /// Battery Sensor packet (CRSF frame type 0x08).
 ///
@@ -22,10 +23,22 @@ use crate::CrsfParsingError;
 /// - **Direction**: FC → Receiver → Transmitter
 ///
 /// The payload is structured as follows:
-/// - Bytes 0-1: Voltage (16-bit signed big-endian, in 10mV units)
-/// - Bytes 2-3: Current (16-bit signed big-endian, in 10mA units)
+/// - Bytes 0-1: Voltage (16-bit signed big-endian, in 100mV units)
+/// - Bytes 2-3: Current (16-bit signed big-endian, in 100mA units)
 /// - Bytes 4-6: Capacity Used (24-bit unsigned big-endian, in mAh)
 /// - Byte 7: Remaining Percentage (8-bit unsigned, 0-100%)
+///
+/// # Unit Scaling: ELRS vs CRSF Spec
+///
+/// This implementation uses **100mV LSB for voltage** and **100mA LSB for current**,
+/// matching the de-facto standard established by ExpressLRS (ELRS) and other major
+/// firmware projects. This provides a practical range of ±3276.7V and ±327.67A.
+///
+/// The official CRSF specification nominally defines 10 µV LSB for voltage and 10 µA
+/// LSB for current, but those values are completely impractical for RC battery
+/// telemetry (they would limit the range to ±0.32767V and ±0.32767A respectively).
+/// In practice, no known implementation uses the spec's micro-units; the ELRS
+/// convention of 100mV/100mA is the universal standard.
 ///
 /// # 24-Bit Capacity Field
 ///
@@ -41,12 +54,12 @@ use crate::CrsfParsingError;
 /// ```
 /// use uf_crsf::packets::{Battery, CrsfPacket};
 ///
-/// // Create a battery packet (12.34V, 10.0A discharged, 5000mAh used, 75% remaining)
-/// let battery = Battery::new(1234, 1000, 5000, 75).unwrap();
+/// // Create a battery packet (15.2V, 5.0A, 2000mAh used, 60% remaining)
+/// let battery = Battery::new(152, 50, 2000, 60).unwrap();
 ///
-/// // Convert to human-readable units
-/// let voltage_v = battery.voltage as f32 / 100.0; // 12.34V
-/// let current_a = battery.current as f32 / 100.0; // 10.0A
+/// // Convert to human-readable units using getter methods
+/// assert!((battery.voltage_v() - 15.2).abs() < 0.01);
+/// assert!((battery.current_a() - 5.0).abs() < 0.01);
 ///
 /// // Serialize to bytes for transmission
 /// let mut buffer = [0u8; Battery::MIN_PAYLOAD_SIZE];
@@ -55,44 +68,50 @@ use crate::CrsfParsingError;
 ///
 /// // Deserialize from bytes
 /// let parsed = Battery::from_bytes(&buffer).unwrap();
-/// assert_eq!(parsed.voltage, 1234);
-/// assert_eq!(parsed.remaining, 75);
+/// assert_eq!(parsed.voltage, 152);
+/// assert_eq!(parsed.remaining, 60);
 /// ```
 #[derive(Default, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Battery {
-    /// Battery voltage in 10mV units (e.g., 1234 represents 12.34V).
+    /// Battery voltage in 100mV units (e.g., 152 represents 15.2V).
     ///
     /// This is the total pack voltage measured at the flight controller.
     /// For LiPo batteries, typical values range from:
     /// - 3.0V per cell (empty) to 4.2V per cell (fully charged)
     /// - A 4S battery would range from 12.0V (empty) to 16.8V (full)
     ///
-    /// To convert to volts: `voltage_v = self.voltage as f32 / 100.0`
+    /// To convert to volts: `voltage_v = self.voltage as f32 / 10.0`
+    ///
+    /// Use [`voltage_v()`](Self::voltage_v) and [`set_voltage_v()`](Self::set_voltage_v)
+    /// to work in human-readable volts.
     ///
     /// # Typical Values
-    /// - 1S (3.7V nominal): 300-420 (3.0V-4.2V)
-    /// - 2S (7.4V nominal): 600-840 (6.0V-8.4V)
-    /// - 3S (11.1V nominal): 900-1260 (9.0V-12.6V)
-    /// - 4S (14.8V nominal): 1200-1680 (12.0V-16.8V)
-    /// - 6S (22.2V nominal): 1800-2520 (18.0V-25.2V)
+    /// - 1S (3.7V nominal): 30-42 (3.0V-4.2V)
+    /// - 2S (7.4V nominal): 60-84 (6.0V-8.4V)
+    /// - 3S (11.1V nominal): 90-126 (9.0V-12.6V)
+    /// - 4S (14.8V nominal): 120-168 (12.0V-16.8V)
+    /// - 6S (22.2V nominal): 180-252 (18.0V-25.2V)
     pub voltage: i16,
 
-    /// Battery current in 10mA units (e.g., 100 represents 1.0A).
+    /// Battery current in 100mA units (e.g., 50 represents 5.0A).
     ///
     /// This is the instantaneous current draw from the battery. Positive values
     /// indicate discharge (battery being drained), negative values indicate charge
     /// (battery being charged, though this is rare in flight).
     ///
-    /// To convert to amperes: `current_a = self.current as f32 / 100.0`
+    /// To convert to amperes: `current_a = self.current as f32 / 10.0`
+    ///
+    /// Use [`current_a()`](Self::current_a) and [`set_current_a()`](Self::set_current_a)
+    /// to work in human-readable amperes.
     ///
     /// # Typical Values
-    /// - Idle/Disarmed: 0-50 (0-0.5A for FC and RX)
-    /// - Hovering: 500-2000 (5-20A depending on craft size)
-    /// - Full throttle: 5000-30000 (50-300A for racing/freestyle quads)
+    /// - Idle/Disarmed: 0-5 (0-0.5A for FC and RX)
+    /// - Hovering: 50-200 (5-20A depending on craft size)
+    /// - Full throttle: 500-3000 (50-300A for racing/freestyle quads)
     ///
     /// # Range
-    /// The 16-bit signed integer allows values from -327.68A to +327.67A,
+    /// The 16-bit signed integer allows values from -3276.8A to +3276.7A,
     /// which covers virtually all FPV drone applications.
     pub current: i16,
 
@@ -108,7 +127,7 @@ pub struct Battery {
     /// use uf_crsf::packets::Battery;
     ///
     /// // If you have a 5000mAh battery and 3500mAh has been used:
-    /// let battery = Battery::new(1600, 100, 3500, 30).unwrap();
+    /// let battery = Battery::new(160, 100, 3500, 30).unwrap();
     /// let remaining_mah = 5000 - battery.capacity_used; // 1500mAh remaining
     /// ```
     ///
@@ -138,14 +157,18 @@ pub struct Battery {
 }
 
 impl Battery {
-    /// Creates a new Battery packet with the specified values.
+    /// Creates a new Battery packet with the specified raw field values.
     ///
     /// # Arguments
     ///
-    /// * `voltage` - Battery voltage in 10mV units (e.g., 1234 for 12.34V)
-    /// * `current` - Current draw in 10mA units (positive for discharge)
+    /// * `voltage` - Battery voltage in 100mV units (e.g., 152 for 15.2V)
+    /// * `current` - Current draw in 100mA units (e.g., 50 for 5.0A discharge)
     /// * `capacity_used` - Capacity consumed in mAh (max 16,777,215)
     /// * `remaining` - Remaining percentage (typically 0-100)
+    ///
+    /// For human-readable units, use the dedicated constructors:
+    /// [`from_volts()`](Self::from_volts) or set values via
+    /// [`set_voltage_v()`](Self::set_voltage_v) / [`set_current_a()`](Self::set_current_a).
     ///
     /// # Errors
     ///
@@ -158,7 +181,7 @@ impl Battery {
     /// use uf_crsf::packets::Battery;
     ///
     /// // 4S LiPo at storage voltage (15.2V), drawing 5A, 2000mAh used, 60% remaining
-    /// let battery = Battery::new(1520, 500, 2000, 60).unwrap();
+    /// let battery = Battery::new(152, 50, 2000, 60).unwrap();
     /// ```
     pub fn new(
         voltage: i16,
@@ -172,6 +195,102 @@ impl Battery {
             capacity_used,
             remaining,
         })
+    }
+
+    /// Creates a new Battery packet from voltage in volts and current in amperes.
+    ///
+    /// # Arguments
+    ///
+    /// * `voltage_v` - Voltage in volts (e.g., 15.2 for a 4S LiPo at storage)
+    /// * `current_a` - Current in amperes (positive for discharge)
+    /// * `capacity_used` - Capacity consumed in mAh (max 16,777,215)
+    /// * `remaining` - Remaining percentage (typically 0-100)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use uf_crsf::packets::Battery;
+    ///
+    /// let battery = Battery::from_volts(15.2, 5.0, 2000, 60).unwrap();
+    /// assert!((battery.voltage_v() - 15.2).abs() < 0.01);
+    /// assert!((battery.current_a() - 5.0).abs() < 0.01);
+    /// ```
+    pub fn from_volts(
+        voltage_v: f32,
+        current_a: f32,
+        capacity_used: u32,
+        remaining: u8,
+    ) -> Result<Self, CrsfParsingError> {
+        Ok(Self {
+            voltage: roundf(voltage_v / 0.1) as i16,
+            current: roundf(current_a / 0.1) as i16,
+            capacity_used,
+            remaining,
+        })
+    }
+
+    /// Returns the battery voltage in volts.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use uf_crsf::packets::Battery;
+    ///
+    /// let battery = Battery::new(152, 50, 2000, 60).unwrap();
+    /// assert!((battery.voltage_v() - 15.2).abs() < 0.01);
+    /// ```
+    pub fn voltage_v(&self) -> f32 {
+        self.voltage as f32 * 0.1
+    }
+
+    /// Sets the battery voltage from a value in volts.
+    ///
+    /// The value is rounded to the nearest 100mV (one LSB).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use uf_crsf::packets::Battery;
+    ///
+    /// let mut battery = Battery::new(120, 50, 2000, 60).unwrap();
+    /// battery.set_voltage_v(15.24);
+    /// assert_eq!(battery.voltage, 152); // rounded to 15.2V
+    /// ```
+    pub fn set_voltage_v(&mut self, volts: f32) {
+        self.voltage = roundf(volts / 0.1) as i16;
+    }
+
+    /// Returns the battery current in amperes.
+    ///
+    /// Positive values indicate discharge, negative values indicate charging.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use uf_crsf::packets::Battery;
+    ///
+    /// let battery = Battery::new(152, 50, 2000, 60).unwrap();
+    /// assert!((battery.current_a() - 5.0).abs() < 0.01);
+    /// ```
+    pub fn current_a(&self) -> f32 {
+        self.current as f32 * 0.1
+    }
+
+    /// Sets the battery current from a value in amperes.
+    ///
+    /// The value is rounded to the nearest 100mA (one LSB).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use uf_crsf::packets::Battery;
+    ///
+    /// let mut battery = Battery::new(152, 50, 2000, 60).unwrap();
+    /// battery.set_current_a(12.34);
+    /// assert_eq!(battery.current, 123); // rounded to 12.3A
+    /// ```
+    pub fn set_current_a(&mut self, amps: f32) {
+        self.current = roundf(amps / 0.1) as i16;
     }
 }
 
@@ -310,5 +429,62 @@ mod tests {
         let data: [u8; 3] = [0x04; 3];
         let result = Battery::from_bytes(&data);
         assert_eq!(result, Err(CrsfParsingError::InvalidPayloadLength));
+    }
+
+    #[test]
+    fn test_battery_voltage_v_getter() {
+        // 152 * 100mV = 15.2V
+        let battery = Battery::new(152, 50, 2000, 60).unwrap();
+        assert!((battery.voltage_v() - 15.2).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_battery_voltage_v_setter() {
+        let mut battery = Battery::new(120, 50, 2000, 60).unwrap();
+        battery.set_voltage_v(15.24);
+        // Rounds to nearest 100mV: 15.2V
+        assert_eq!(battery.voltage, 152);
+        assert!((battery.voltage_v() - 15.2).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_battery_current_a_getter() {
+        // 50 * 100mA = 5.0A
+        let battery = Battery::new(152, 50, 2000, 60).unwrap();
+        assert!((battery.current_a() - 5.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_battery_current_a_setter() {
+        let mut battery = Battery::new(152, 50, 2000, 60).unwrap();
+        battery.set_current_a(12.34);
+        // Rounds to nearest 100mA: 12.3A
+        assert_eq!(battery.current, 123);
+        assert!((battery.current_a() - 12.3).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_battery_negative_current() {
+        let mut battery = Battery::new(152, -50, 2000, 60).unwrap();
+        assert!((battery.current_a() - (-5.0)).abs() < f32::EPSILON);
+        battery.set_current_a(-12.34);
+        assert_eq!(battery.current, -123);
+        assert!((battery.current_a() - (-12.3)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_battery_from_volts() {
+        let battery = Battery::from_volts(15.2, 5.0, 2000, 60).unwrap();
+        assert_eq!(battery.voltage, 152);
+        assert_eq!(battery.current, 50);
+        assert_eq!(battery.capacity_used, 2000);
+        assert_eq!(battery.remaining, 60);
+    }
+
+    #[test]
+    fn test_battery_from_volts_rounding() {
+        let battery = Battery::from_volts(15.24, 12.34, 2000, 60).unwrap();
+        assert_eq!(battery.voltage, 152); // 15.24 rounds to 15.2
+        assert_eq!(battery.current, 123); // 12.34 rounds to 12.3
     }
 }
