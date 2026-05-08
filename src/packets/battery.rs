@@ -1,7 +1,23 @@
 use crate::packets::CrsfPacket;
 use crate::packets::PacketType;
 use crate::CrsfParsingError;
-use libm::roundf;
+
+/// Round an f32 to the nearest integer (round half away from zero).
+///
+/// This is a `no_std`-compatible replacement for `libm::roundf` / `f32::round()`,
+/// which are unavailable on targets without `std` or `libm`.
+///
+/// Uses the identity that truncation toward zero (`as i32`) plus offsetting
+/// by 0.5 in the appropriate direction yields correct rounding.
+#[inline]
+fn roundf(x: f32) -> f32 {
+    if x >= 0.0 {
+        (x + 0.5) as i32 as f32
+    } else {
+        (x - 0.5) as i32 as f32
+    }
+}
+
 
 /// Battery Sensor packet (CRSF frame type 0x08).
 ///

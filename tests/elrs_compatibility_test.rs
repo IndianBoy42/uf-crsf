@@ -1,10 +1,14 @@
 #![cfg(test)]
 extern crate std;
 
+#[cfg(feature = "device")]
 use uf_crsf::device::Device;
-use uf_crsf::packets::{CrsfPacket, DeviceInformation, ElrsStatus, PacketAddress};
+use uf_crsf::packets::{CrsfPacket, ElrsStatus, PacketAddress};
+#[cfg(feature = "device")]
+use uf_crsf::packets::DeviceInformation;
 use uf_crsf::write_packet_to_buffer;
 
+#[cfg(feature = "device")]
 #[test]
 fn test_device_identifies_elrs_with_correct_serial() {
     // Create a DeviceInformation with ELRS serial number (0x454C5253 = "ELRS")
@@ -30,6 +34,7 @@ fn test_device_identifies_elrs_with_correct_serial() {
     );
 }
 
+#[cfg(feature = "device")]
 #[test]
 fn test_device_does_not_identify_non_elrs_as_elrs() {
     // Create a DeviceInformation with non-ELRS serial number

@@ -33,8 +33,11 @@ mod mavlink_envelope;
 mod mavlink_fc;
 mod mavlink_sensor;
 mod msp;
+#[cfg(feature = "device")]
 mod parameter_read;
+#[cfg(feature = "device")]
 mod parameter_settings_entry;
+#[cfg(feature = "device")]
 mod parameter_write;
 mod rc_channels_packed;
 mod remote;
@@ -71,11 +74,14 @@ pub use mavlink_envelope::MavlinkEnvelope;
 pub use mavlink_fc::MavLinkFc;
 pub use mavlink_sensor::MavLinkSensor;
 pub use msp::MspPacket;
+#[cfg(feature = "device")]
 pub use parameter_read::ParameterRead;
+#[cfg(feature = "device")]
 pub use parameter_settings_entry::{
     ParameterChunk, ParameterChunkReassembler, ParameterData, ParameterDataType,
     ParameterSettingsEntry,
 };
+#[cfg(feature = "device")]
 pub use parameter_write::ParameterWrite;
 pub use rc_channels_packed::RcChannelsPacked;
 pub use remote::Remote;
@@ -145,14 +151,18 @@ pub enum Packet {
     NotImplemented(PacketType, usize),
     Command(DirectCommand),
     Logging(Logging),
+    #[cfg(feature = "device")]
     ParameterRead(ParameterRead),
+    #[cfg(feature = "device")]
     ParameterWrite(ParameterWrite),
+    #[cfg(feature = "device")]
     ParameterSettingsEntry(ParameterSettingsEntry),
     /// Partial/chunked parameter entry that requires reassembly.
     ///
     /// When a parameter's entry payload exceeds 56 bytes, the device splits
     /// it across multiple 0x2B frames. Use [`ParameterChunkReassembler`]
     /// to collect all chunks and produce a complete [`ParameterSettingsEntry`].
+    #[cfg(feature = "device")]
     ParameterChunk(ParameterChunk),
     ElrsStatus(ElrsStatus),
     MspRequest(MspPacket),
@@ -218,10 +228,13 @@ impl Packet {
             }
             DirectCommand::PACKET_TYPE => Ok(Self::Command(DirectCommand::from_bytes(data)?)),
             Logging::PACKET_TYPE => Ok(Self::Logging(Logging::from_bytes(data)?)),
+            #[cfg(feature = "device")]
             ParameterRead::PACKET_TYPE => Ok(Self::ParameterRead(ParameterRead::from_bytes(data)?)),
+            #[cfg(feature = "device")]
             ParameterWrite::PACKET_TYPE => {
                 Ok(Self::ParameterWrite(ParameterWrite::from_bytes(data)?))
             }
+            #[cfg(feature = "device")]
             ParameterSettingsEntry::PACKET_TYPE => {
                 // Try full-entry parsing first (single-chunk parameters).
                 // If the entry payload exceeds 56 bytes (chunked), from_bytes

@@ -64,7 +64,7 @@
 //! All CRSF packet types are defined in the [`packets`] module, each
 //! implementing the [`CrsfPacket`] trait:
 //! - **Telemetry**: [`LinkStatistics`], [`Battery`], [`GPS`], [`Attitude`], etc.
-//! - **Commands**: [`Commands`], [`ParameterWrite`], etc.
+//! - **Commands**: [`Commands`], etc.
 //! - **Device management**: [`DevicePing`], [`DeviceInformation`], etc.
 //! - **RC channels**: [`RcChannelsPacked`]
 //!
@@ -245,6 +245,8 @@
 //!
 //! ## Feature Flags
 //!
+//! - **`device`** *(default)*: Enable device parameter management (`DeviceManager`,
+//!   `ParameterSettingsEntry`, `ParameterRead`, `ParameterWrite`, etc.)
 //! - **`defmt`**: Enable `defmt::Format` derives for structured logging
 //! - **`embedded_io`**: Enable blocking I/O abstractions (`BlockingCrsfReader`)
 //! - **`embedded_io_async`**: Enable async I/O abstractions (`AsyncCrsfReader`)
@@ -260,6 +262,7 @@
 #![doc = include_str!("../README.md")]
 
 pub mod constants;
+#[cfg(feature = "device")]
 pub mod device;
 pub mod error;
 pub mod packets;

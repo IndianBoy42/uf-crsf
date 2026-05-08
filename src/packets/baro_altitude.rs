@@ -1,8 +1,6 @@
 use crate::packets::CrsfPacket;
 use crate::packets::PacketType;
 use crate::CrsfParsingError;
-use core::f32::consts::E;
-use libm::{logf, powf};
 
 /// Represents a Barometric Altitude & Vertical Speed packet.
 ///
@@ -18,11 +16,11 @@ use libm::{logf, powf};
 ///
 /// # Vertical Speed Encoding (8 bits, signed)
 /// Uses logarithmic compression for higher precision at low speeds:
-/// - Range: ±2500 cm/s (±25 m/s)
+/// - Range: ±2616 cm/s (±26.16 m/s)
 /// - Precision varies by speed:
 ///   - ~3 cm/s precision at low speeds (near 0)
 ///   - ~70 cm/s precision at speeds around 25 m/s
-/// - Constants: KL=100.0 (linearity), KR=0.026 (range)
+/// - Constants: KL=100 (linearity), KR=0.026 (range)
 #[derive(Default, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BaroAltitude {
@@ -68,21 +66,122 @@ impl BaroAltitude {
             (((altitude_dm + 5) / 10) | 0x8000) as u16
         }
     }
+}
 
-    pub fn get_vertical_speed_packed(vertical_speed_cm_s: i16) -> i8 {
-        (logf((f32::from(vertical_speed_cm_s.abs())) / KL + 1.0) / KR
-            * (f32::from(vertical_speed_cm_s.signum()))) as i8
+// ---------------------------------------------------------------------------
+// Vertical speed: LUT-based implementation (default, no libm required)
+// ---------------------------------------------------------------------------
+#[cfg(not(feature = "baro-math"))]
+impl BaroAltitude {
+    /// Decode the packed vertical speed to cm/s using a precomputed lookup table.
+    ///
+    /// The LUT replaces the `powf` call that would otherwise require `libm`,
+    /// making this work on FPU-less microcontrollers without soft-float overhead.
+    pub fn get_vertical_speed_cm_s(&self) -> i16 {
+        VSPEED_DECODE_LUT[(self.vertical_speed_packed as usize).wrapping_add(128)]
     }
 
-    pub fn get_vertical_speed_cm_s(&self) -> i16 {
-        ((powf(E, (f32::from(self.vertical_speed_packed.abs())) * KR) - 1.0)
-            * KL
-            * (f32::from(self.vertical_speed_packed.signum()))) as i16
+    /// Encode a vertical speed in cm/s to the packed i8 representation using
+    /// binary search on the decode LUT.
+    ///
+    /// The function is monotonic in the positive domain, so binary search
+    /// finds the closest packed value whose LUT entry is nearest to the
+    /// requested speed.
+    pub fn get_vertical_speed_packed(vertical_speed_cm_s: i16) -> i8 {
+        if vertical_speed_cm_s == 0 {
+            return 0;
+        }
+
+        let abs_val = vertical_speed_cm_s.unsigned_abs() as i16;
+        let sign: i8 = if vertical_speed_cm_s > 0 { 1 } else { -1 };
+
+        // Binary search on the positive part of the LUT (indices 128..255).
+        // Index 128 = packed 0, index 255 = packed 127.
+        let mut lo: usize = 128;
+        let mut hi: usize = 255;
+
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if VSPEED_DECODE_LUT[mid] < abs_val {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+
+        // `lo` is now the first index whose LUT value >= abs_val.
+        // Check whether the neighbour below is closer.
+        if lo > 128 {
+            let diff_lo = (VSPEED_DECODE_LUT[lo] - abs_val).unsigned_abs();
+            let diff_prev = (abs_val - VSPEED_DECODE_LUT[lo - 1]).unsigned_abs();
+            if diff_prev < diff_lo {
+                lo -= 1;
+            }
+        }
+
+        ((lo - 128) as i8) * sign
     }
 }
 
-const KL: f32 = 100.0; // linearity constant
-const KR: f32 = 0.026; // range constant
+// ---------------------------------------------------------------------------
+// Vertical speed: libm-based implementation (opt-in via `baro-math` feature)
+// ---------------------------------------------------------------------------
+#[cfg(feature = "baro-math")]
+impl BaroAltitude {
+    /// Decode the packed vertical speed to cm/s using `libm`'s `powf`.
+    pub fn get_vertical_speed_cm_s(&self) -> i16 {
+        ((libm::powf(
+            core::f32::consts::E,
+            (self.vertical_speed_packed.unsigned_abs() as f32) * KR,
+        ) - 1.0)
+            * KL
+            * (self.vertical_speed_packed.signum() as f32)) as i16
+    }
+
+    /// Encode a vertical speed in cm/s to the packed i8 representation using
+    /// `libm`'s `logf`.
+    pub fn get_vertical_speed_packed(vertical_speed_cm_s: i16) -> i8 {
+        (libm::logf((vertical_speed_cm_s.unsigned_abs() as f32) / KL + 1.0) / KR
+            * (vertical_speed_cm_s.signum() as f32)) as i8
+    }
+}
+
+/// Linearity constant for vertical speed encoding.
+#[cfg(feature = "baro-math")]
+const KL: f32 = 100.0;
+/// Range constant for vertical speed encoding.
+#[cfg(feature = "baro-math")]
+const KR: f32 = 0.026;
+
+/// Decode lookup table: maps packed i8 value to vertical speed in cm/s.
+///
+/// Index = `packed_i8 + 128` (so index 0 = packed -128, index 128 = packed 0,
+/// index 255 = packed 127).
+///
+/// Values are computed with the formula `(e^(|packed| * KR) - 1) * KL * signum(packed)`
+/// using truncation to `i16`, matching the original `libm`-based `as i16` cast.
+#[cfg(not(feature = "baro-math"))]
+const VSPEED_DECODE_LUT: [i16; 256] = [
+    -2688, -2616, -2546, -2479, -2412, -2348, -2285, -2224, -2164, -2106, -2049,
+    -1994, -1940, -1888, -1837, -1787, -1739, -1692, -1646, -1601, -1557, -1515,
+    -1473, -1433, -1393, -1355, -1318, -1281, -1246, -1211, -1178, -1145, -1113,
+    -1082, -1051, -1022, -993, -965, -938, -911, -885, -860, -835, -811, -788,
+    -765, -743, -721, -700, -679, -659, -640, -621, -602, -584, -567, -550, -533,
+    -517, -501, -485, -470, -456, -441, -428, -414, -401, -388, -375, -363, -351,
+    -340, -328, -317, -307, -296, -286, -276, -266, -257, -248, -239, -230, -222,
+    -213, -205, -198, -190, -182, -175, -168, -161, -154, -148, -142, -135, -129,
+    -123, -118, -112, -107, -101, -96, -91, -86, -81, -77, -72, -68, -63, -59, -55,
+    -51, -47, -43, -40, -36, -33, -29, -26, -23, -19, -16, -13, -10, -8, -5, -2, 0,
+    2, 5, 8, 10, 13, 16, 19, 23, 26, 29, 33, 36, 40, 43, 47, 51, 55, 59, 63, 68,
+    72, 77, 81, 86, 91, 96, 101, 107, 112, 118, 123, 129, 135, 142, 148, 154, 161,
+    168, 175, 182, 190, 198, 205, 213, 222, 230, 239, 248, 257, 266, 276, 286, 296,
+    307, 317, 328, 340, 351, 363, 375, 388, 401, 414, 428, 441, 456, 470, 485, 501,
+    517, 533, 550, 567, 584, 602, 621, 640, 659, 679, 700, 721, 743, 765, 788, 811,
+    835, 860, 885, 911, 938, 965, 993, 1022, 1051, 1082, 1113, 1145, 1178, 1211,
+    1246, 1281, 1318, 1355, 1393, 1433, 1473, 1515, 1557, 1601, 1646, 1692, 1739,
+    1787, 1837, 1888, 1940, 1994, 2049, 2106, 2164, 2224, 2285, 2348, 2412, 2479,
+    2546, 2616,
+];
 
 impl CrsfPacket for BaroAltitude {
     const PACKET_TYPE: PacketType = PacketType::BaroAltitude;

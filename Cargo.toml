@@ -16,7 +16,7 @@ readme = "README.md"
 crc = "3.3.0"
 defmt = { version = "1.0.1", optional = true }
 heapless = "0.9.1"
-libm = "0.2.15"
+libm = { version = "0.2.15", optional = true }
 log = { version = "0.4", optional = true, default-features = false }
 num_enum = { version = "0.7.3", default-features = false }
 embedded-io-async = { version = "0.7.0", optional = true }
@@ -29,8 +29,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-serial = "5.4.4"
 embedded-io-adapters = { version = "0.7.0", features = ["tokio-1"] }
 embedded-io-async = "0.7.0"
-ratatui = "0.29"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29"
 log = "0.4"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
@@ -72,6 +72,7 @@ path = "examples/local_simple.rs"
 [[example]]
 name = "param_tui"
 path = "examples/param_tui.rs"
+required-features = ["device"]
 test = false
 
 [[example]]
@@ -79,7 +80,22 @@ name = "parse_hex"
 path = "examples/parse_hex.rs"
 test = false
 
+[[example]]
+name = "device_manager_demo"
+path = "examples/device_manager_demo.rs"
+required-features = ["device"]
+test = false
+
+[[example]]
+name = "mock_parameter_cli"
+path = "examples/mock_parameter_cli.rs"
+required-features = ["device"]
+test = false
+
 [features]
+default = ["device"]
+"device" = []
+"baro-math" = ["dep:libm"]
 "defmt" = [
     "dep:defmt",
     "embedded-io-async?/defmt",

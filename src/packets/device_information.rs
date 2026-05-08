@@ -53,10 +53,8 @@ const FIXED_FIELDS_SIZE: usize = 3 * size_of::<u32>() + 2 * size_of::<u8>();
 /// ```no_run
 /// # use uf_crsf::packets::DeviceInformation;
 /// # use uf_crsf::parser::CrsfParser;
-/// # use uf_crsf::packets::{Packet, ParameterRead, PacketAddress};
+/// # use uf_crsf::packets::{Packet, PacketAddress};
 /// # fn uart_read() -> Vec<u8> { vec![] }
-/// # fn uart_write<T>(_: &T) {}
-/// # let my_address: u8 = PacketAddress::Handset as u8;
 /// let mut parser = CrsfParser::new();
 ///
 /// // Process incoming packets
@@ -69,14 +67,8 @@ const FIXED_FIELDS_SIZE: usize = 3 * size_of::<u32>() + 2 * size_of::<u8>();
 ///             println!("  Parameters: {}", info.parameters_total);
 ///             println!("  Firmware: 0x{:08X}", info.firmware_id);
 ///
-///             // Start parameter enumeration
-///             let request = ParameterRead::new(
-///                 info.src_addr,
-///                 my_address,
-///                 0,
-///                 0,
-///             ).unwrap();
-///             uart_write(&request);
+///             // Start parameter enumeration using ParameterRead
+///             // (requires the `device` feature)
 ///         }
 ///     }
 /// }
