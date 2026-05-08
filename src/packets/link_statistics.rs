@@ -85,29 +85,28 @@ impl CrsfPacket for LinkStatistics {
     }
 
     fn from_bytes(data: &[u8]) -> Result<Self, CrsfParsingError> {
-        if data.len() == Self::MIN_PAYLOAD_SIZE {
-            #[cfg(feature = "logging")]
-            trace!(
-                "LinkStatistics: rssi1={}, rssi2={}, lq={}, snr={}, ant={}, rf={}, txpwr={}, drssi={}, dlq={}, dsnr={}",
-                data[0], data[1], data[2], data[3] as i8,
-                data[4], data[5], data[6],
-                data[7], data[8], data[9] as i8,
-            );
-            Ok(Self {
-                uplink_rssi_1: data[0],
-                uplink_rssi_2: data[1],
-                uplink_link_quality: data[2],
-                uplink_snr: data[3] as i8,
-                active_antenna: data[4],
-                rf_mode: data[5],
-                uplink_tx_power: data[6],
-                downlink_rssi: data[7],
-                downlink_link_quality: data[8],
-                downlink_snr: data[9] as i8,
-            })
-        } else {
-            Err(CrsfParsingError::InvalidPayloadLength)
+        if data.len() < Self::MIN_PAYLOAD_SIZE {
+            return Err(CrsfParsingError::InvalidPayloadLength);
         }
+        #[cfg(feature = "logging")]
+        trace!(
+            "LinkStatistics: rssi1={}, rssi2={}, lq={}, snr={}, ant={}, rf={}, txpwr={}, drssi={}, dlq={}, dsnr={}",
+            data[0], data[1], data[2], data[3] as i8,
+            data[4], data[5], data[6],
+            data[7], data[8], data[9] as i8,
+        );
+        Ok(Self {
+            uplink_rssi_1: data[0],
+            uplink_rssi_2: data[1],
+            uplink_link_quality: data[2],
+            uplink_snr: data[3] as i8,
+            active_antenna: data[4],
+            rf_mode: data[5],
+            uplink_tx_power: data[6],
+            downlink_rssi: data[7],
+            downlink_link_quality: data[8],
+            downlink_snr: data[9] as i8,
+        })
     }
 }
 
