@@ -3,7 +3,6 @@ use crate::{
     error::CrsfStreamError,
     packets::{Packet, PacketAddress},
 };
-use crc::Crc;
 use num_enum::TryFromPrimitive;
 
 #[cfg(feature = "logging")]
@@ -232,6 +231,7 @@ pub enum State {
 /// - Parse in ISR for lowest latency, or in task for simplicity
 /// - Watch for stack overflow in FreeRTOS task
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CrsfParser {
     /// Internal buffer for accumulating packet bytes.
     ///
@@ -248,8 +248,9 @@ pub struct CrsfParser {
 /// This CRC is calculated over the packet type and payload bytes (not the
 /// sync byte or length byte). The calculated CRC must match the final byte
 /// of the packet for the packet to be valid.
-const CRC8_DVB_S2: Crc<u8> = Crc::<u8>::new(&crc::CRC_8_DVB_S2);
-
+///
+/// Uses the shared CRC instance from [`constants::CRC8_DVB_S2`] to avoid
+/// duplicating the lookup table.
 impl CrsfParser {
     /// Creates a new parser in `AwaitingSync` state.
     ///
@@ -392,7 +393,7 @@ impl CrsfParser {
                 self.position += 1;
                 self.buffer[self.position] = byte;
 
-                let mut digest = CRC8_DVB_S2.digest();
+                let mut digest = constants::CRC8_DVB_S2.digest();
                 digest.update(&self.buffer[2..self.position]);
                 let calculated_crc = digest.finalize();
                 let packet_crc = self.buffer[self.position];

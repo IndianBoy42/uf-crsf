@@ -30,16 +30,6 @@ use crate::parser::CrsfParser;
 use embedded_io_async::{Error, Write};
 use heapless::Deque;
 
-/// Size of the internal input buffer for [`AsyncCrsfReader`].
-///
-/// Sized to hold 2 complete CRSF packets, providing headroom for burst reads
-/// and handling cases where a partial packet remains in buffer after a
-/// complete packet is parsed.
-///
-/// If you experience [`CrsfStreamError::InputBufferTooSmall`] errors in
-/// production, increase this constant and recompile the library.
-const ASYNC_IO_BUFFER_SIZE: usize = crate::constants::CRSF_MAX_PACKET_SIZE * 2;
-
 /// Async CRSF packet reader for `embedded_io_async::Read` streams.
 ///
 /// This type provides a convenient abstraction for asynchronously reading
@@ -50,6 +40,13 @@ const ASYNC_IO_BUFFER_SIZE: usize = crate::constants::CRSF_MAX_PACKET_SIZE * 2;
 /// - Parsing packet framing
 /// - Validating CRC checksums
 /// - Returning fully parsed packets
+///
+/// # Type Parameters
+///
+/// - `R`: The underlying async reader type, implementing `embedded_io_async::Read`
+/// - `const N: usize`: The internal input buffer size in bytes. Defaults to 128
+///   (2 complete CRSF packets). If you experience
+///   [`CrsfStreamError::InputBufferTooSmall`] errors, increase this value.
 ///
 /// # Architecture
 ///
@@ -210,7 +207,7 @@ const ASYNC_IO_BUFFER_SIZE: usize = crate::constants::CRSF_MAX_PACKET_SIZE * 2;
 ///
 /// # Performance Considerations
 ///
-/// - **Buffer size**: 128 bytes (2 packets) provides good headroom for burst reads
+/// - **Buffer size**: 128 bytes (default, 2 packets) provides good headroom for burst reads
 /// - **Read size**: Reads up to 64 bytes per loop iteration
 /// - **Latency**: `read_packet().await` awaits until a complete packet is received
 /// - **Async overhead**: Minimal - uses standard `embedded_io_async` traits
@@ -224,23 +221,23 @@ const ASYNC_IO_BUFFER_SIZE: usize = crate::constants::CRSF_MAX_PACKET_SIZE * 2;
 /// | `InvalidCrc` | Corrupted packet | Parser auto-resets, continue |
 /// | `Io` | UART/serial async error | Check hardware, reset connection |
 /// | `UnexpectedEof` | Async stream closed | Connection lost, reconnect |
-/// | `InputBufferTooSmall` | Buffer overflow | Increase `ASYNC_IO_BUFFER_SIZE` |
+/// | `InputBufferTooSmall` | Buffer overflow | Increase const generic `N` |
 ///
 /// # Cancellation Safety
 ///
 /// If `read_packet().await` is cancelled (e.g., via timeout), the parser's
 /// internal state remains valid. The next `read_packet().await` will continue
 /// from where it left off without losing data.
-pub struct AsyncCrsfReader<R> {
+pub struct AsyncCrsfReader<R, const N: usize = 128> {
     /// Internal parser for byte-level CRSF processing.
     parser: CrsfParser,
     /// The underlying async reader (UART, serial port, etc.).
     reader: R,
     /// Internal buffer for accumulating bytes between packets.
-    input_buffer: Deque<u8, ASYNC_IO_BUFFER_SIZE>,
+    input_buffer: Deque<u8, N>,
 }
 
-impl<R: embedded_io_async::Read> AsyncCrsfReader<R> {
+impl<R: embedded_io_async::Read, const N: usize> AsyncCrsfReader<R, N> {
     /// Creates a new async CRSF packet reader.
     ///
     /// The reader is initialized with an empty buffer and parser in
@@ -295,8 +292,8 @@ impl<R: embedded_io_async::Read> AsyncCrsfReader<R> {
     ///
     /// # Buffer Management
     ///
-    /// The reader uses an internal buffer (128 bytes by default) to accumulate
-    /// bytes between packets. This allows:
+    /// The reader uses an internal buffer (default 128 bytes, configurable via
+    /// the const generic parameter `N`) to accumulate bytes between packets. This allows:
     /// - Reading multiple packets in a single async read
     /// - Handling packets that span multiple read boundaries
     /// - Efficient buffering of burst data

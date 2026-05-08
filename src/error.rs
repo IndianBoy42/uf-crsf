@@ -306,8 +306,9 @@ pub enum CrsfStreamError {
     ///
     /// # Recovery
     ///
-    /// Increase the buffer size by modifying the
-    /// `BLOCKING_IO_BUFFER_SIZE` or `ASYNC_IO_BUFFER_SIZE` constants, or
+    /// Increase the buffer size by increasing the const generic `N` parameter
+    /// on [`BlockingCrsfReader`](crate::blocking_io::BlockingCrsfReader) or
+    /// [`AsyncCrsfReader`](crate::async_io::AsyncCrsfReader), or
     /// reset the parser and discard buffered data if synchronization appears
     /// stuck.
     InputBufferTooSmall,

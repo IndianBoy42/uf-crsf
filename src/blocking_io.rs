@@ -22,16 +22,6 @@ use crate::parser::CrsfParser;
 use embedded_io::{Error, Read, Write};
 use heapless::Deque;
 
-/// Size of the internal input buffer for [`BlockingCrsfReader`].
-///
-/// Sized to hold 2 complete CRSF packets, providing headroom for burst reads
-/// and handling cases where a partial packet remains in the buffer after a
-/// complete packet is parsed.
-///
-/// If you experience [`CrsfStreamError::InputBufferTooSmall`] errors in
-/// production, increase this constant and recompile the library.
-const BLOCKING_IO_BUFFER_SIZE: usize = crate::constants::CRSF_MAX_PACKET_SIZE * 2;
-
 /// Blocking CRSF packet reader for `embedded_io::Read` streams.
 ///
 /// This type provides a convenient abstraction for reading complete CRSF packets
@@ -41,6 +31,13 @@ const BLOCKING_IO_BUFFER_SIZE: usize = crate::constants::CRSF_MAX_PACKET_SIZE * 
 /// - Parsing packet framing
 /// - Validating CRC checksums
 /// - Returning fully parsed packets
+///
+/// # Type Parameters
+///
+/// - `R`: The underlying reader type, implementing `embedded_io::Read`
+/// - `const N: usize`: The internal input buffer size in bytes. Defaults to 128
+///   (2 complete CRSF packets). If you experience
+///   [`CrsfStreamError::InputBufferTooSmall`] errors, increase this value.
 ///
 /// # Architecture
 ///
@@ -212,7 +209,7 @@ const BLOCKING_IO_BUFFER_SIZE: usize = crate::constants::CRSF_MAX_PACKET_SIZE * 
 ///
 /// # Performance Considerations
 ///
-/// - **Buffer size**: 128 bytes (2 packets) provides good headroom for burst reads
+/// - **Buffer size**: 128 bytes (default, 2 packets) provides good headroom for burst reads
 /// - **Read size**: Reads up to 64 bytes per loop iteration
 /// - **Latency**: `read_packet()` blocks until a complete packet is received
 /// - **Memory**: ~128 bytes for input buffer + 64 bytes for parser = ~192 bytes
@@ -225,17 +222,17 @@ const BLOCKING_IO_BUFFER_SIZE: usize = crate::constants::CRSF_MAX_PACKET_SIZE * 
 /// | `InvalidCrc` | Corrupted packet | Parser auto-resets, continue |
 /// | `Io` | UART/serial error | Check hardware, reset connection |
 /// | `UnexpectedEof` | Stream closed | Connection lost, reconnect |
-/// | `InputBufferTooSmall` | Buffer overflow | Increase `BLOCKING_IO_BUFFER_SIZE` |
-pub struct BlockingCrsfReader<R> {
+/// | `InputBufferTooSmall` | Buffer overflow | Increase const generic `N` |
+pub struct BlockingCrsfReader<R, const N: usize = 128> {
     /// Internal parser for byte-level CRSF processing.
     parser: CrsfParser,
     /// The underlying reader (UART, serial port, etc.).
     reader: R,
     /// Internal buffer for accumulating bytes between packets.
-    input_buffer: Deque<u8, BLOCKING_IO_BUFFER_SIZE>,
+    input_buffer: Deque<u8, N>,
 }
 
-impl<R: Read> BlockingCrsfReader<R> {
+impl<R: Read, const N: usize> BlockingCrsfReader<R, N> {
     /// Creates a new blocking CRSF packet reader.
     ///
     /// The reader is initialized with an empty buffer and the parser in
@@ -294,8 +291,8 @@ impl<R: Read> BlockingCrsfReader<R> {
     ///
     /// # Buffer Management
     ///
-    /// The reader uses an internal buffer (128 bytes by default) to accumulate
-    /// bytes between packets. This allows:
+    /// The reader uses an internal buffer (default 128 bytes, configurable via
+    /// the const generic parameter `N`) to accumulate bytes between packets. This allows:
     /// - Reading multiple packets in a single read operation
     /// - Handling packets that span multiple read boundaries
     /// - Efficient buffering of burst data

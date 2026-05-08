@@ -111,6 +111,7 @@ impl ParameterChunk {
 /// }
 /// ```
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ParameterChunkReassembler {
     /// Parameter number being assembled.
     param_number: u8,
@@ -291,6 +292,7 @@ impl ParameterChunkReassembler {
 ///       └─ ID 30: Telemetry (TextSelection: Off/UART/Crossfire/ELRS)
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ParameterDataType {
     /// Unsigned 8-bit integer (deprecated - use Float instead).
     Uint8 = 0,

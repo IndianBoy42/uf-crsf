@@ -34,7 +34,7 @@ async fn test_write_and_read_packet_async() {
     let reader = &packet_bytes[..];
 
     // Parser
-    let mut reader = AsyncCrsfReader::new(reader);
+    let mut reader = AsyncCrsfReader::<_, 128>::new(reader);
     let result = reader.read_packet().await;
 
     assert!(result.is_ok());
@@ -57,7 +57,7 @@ async fn test_write_and_read_packet_async() {
 
 #[tokio::test]
 async fn test_read_packet_async_with_no_data() {
-    let mut reader = AsyncCrsfReader::new(&[][..]);
+    let mut reader = AsyncCrsfReader::<_, 128>::new(&[][..]);
     let result = reader.read_packet().await;
     assert!(matches!(result, Err(CrsfStreamError::UnexpectedEof)));
 }
@@ -65,7 +65,7 @@ async fn test_read_packet_async_with_no_data() {
 #[tokio::test]
 async fn test_read_packet_async_with_incomplete_data() {
     let packet_bytes = build_link_statistics_packet_bytes(10).await;
-    let mut reader = AsyncCrsfReader::new(&packet_bytes[..packet_bytes.len() - 1]);
+    let mut reader = AsyncCrsfReader::<_, 128>::new(&packet_bytes[..packet_bytes.len() - 1]);
     let result = reader.read_packet().await;
     assert!(matches!(result, Err(CrsfStreamError::UnexpectedEof)));
 }
@@ -73,7 +73,7 @@ async fn test_read_packet_async_with_incomplete_data() {
 #[tokio::test]
 async fn test_read_packet_async_with_garbage() {
     let garbage = [0x01, 0x02, 0x03];
-    let mut reader = AsyncCrsfReader::new(&garbage[..]);
+    let mut reader = AsyncCrsfReader::<_, 128>::new(&garbage[..]);
     let result = reader.read_packet().await;
     // We expect an InvalidSync error because the first byte is not a valid sync byte.
     assert!(matches!(result, Err(CrsfStreamError::InvalidSync(_))));
@@ -88,7 +88,7 @@ async fn test_read_packet_async_chunked_stream() {
     combined_bytes.extend_from_slice(&packet1_bytes);
     combined_bytes.extend_from_slice(&packet2_bytes);
 
-    let mut stream_reader = AsyncCrsfReader::new(&combined_bytes[..]);
+    let mut stream_reader = AsyncCrsfReader::<_, 128>::new(&combined_bytes[..]);
 
     let result1 = stream_reader.read_packet().await;
     let result2 = stream_reader.read_packet().await;

@@ -66,7 +66,7 @@ async fn main() {
         });
 
     let adapted_port = FromTokio::new(&mut port);
-    let mut reader = AsyncCrsfReader::new(adapted_port);
+    let mut reader = AsyncCrsfReader::<_, 128>::new(adapted_port);
     println!("Reading from serial port '{}'...", path);
 
     loop {

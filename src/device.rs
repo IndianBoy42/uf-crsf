@@ -166,6 +166,7 @@ const DEFAULT_RETRY_COUNT: u8 = 3;
 
 /// Configuration for [DeviceManager] timeouts and retry behavior.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DeviceManagerConfig {
     /// Timeout for parameter requests in milliseconds.
     ///
@@ -260,6 +261,7 @@ impl Default for DeviceManagerConfig {
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Parameter {
     /// Unique parameter ID within a device.
     ///
@@ -415,6 +417,25 @@ pub struct Device {
     pub parameters_loaded: bool,
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Device {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "Device {{ address: {}, name: {:a}, serial_number: {=u32}, hardware_id: {=u32}, firmware_id: {=u32}, parameters_total: {=u8}, parameter_version: {=u8}, parameters_loaded: {=bool}, parameters: [..{=usize}] }}",
+            self.address,
+            self.name.as_bytes(),
+            self.serial_number,
+            self.hardware_id,
+            self.firmware_id,
+            self.parameters_total,
+            self.parameter_version,
+            self.parameters_loaded,
+            self.parameters.len(),
+        )
+    }
+}
+
 impl Device {
     /// Creates a new Device from DeviceInformation.
     pub fn from_device_info(info: &DeviceInformation) -> Result<Self, CrsfParsingError> {
@@ -478,6 +499,7 @@ impl Device {
 
 /// Pending parameter request state.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct PendingRequest {
     /// Device address.
     device_addr: PacketAddress,
@@ -595,6 +617,7 @@ struct PendingRequest {
 /// - Use the `serial` API to read/write CRSF packets
 /// - Call update/time functions from script tick handler
 /// - Note: Lua may have latency constraints, adjust timeouts accordingly
+#[derive(Debug)]
 pub struct DeviceManager {
     /// Timeout and retry configuration.
     config: DeviceManagerConfig,
@@ -1453,6 +1476,20 @@ impl DeviceManager {
 impl Default for DeviceManager {
     fn default() -> Self {
         Self::new(DeviceManagerConfig::default())
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for DeviceManager {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "DeviceManager {{ own_address: {}, devices: {=usize}, pending_requests: {=usize}, current_time: {=u32} }}",
+            self.own_address,
+            self.devices.len(),
+            self.pending_requests.len(),
+            self.current_time,
+        )
     }
 }
 

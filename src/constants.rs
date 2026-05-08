@@ -1,7 +1,9 @@
 //! CRSF protocol constants.
 //!
 //! This module defines the fundamental constants for the TBS Crossfire protocol,
-//! including packet size limits and framing structure.
+//! including packet size limits, framing structure, and shared CRC calculator.
+
+use crc::Crc;
 
 /// Maximum CRSF packet size in bytes, including all framing.
 ///
@@ -89,3 +91,10 @@ pub const CRSF_MAX_PACKET_SIZE: usize = 64;
 pub const CRSF_MIN_PACKET_SIZE: usize = 4;
 
 pub const CRSF_SYNC_BYTE: u8 = 0xC8;
+
+/// CRC-8/DVB-S2 calculator shared between parser and packet serializer.
+///
+/// This CRC is calculated over the packet type and payload bytes (not the
+/// sync byte or length byte). Both the parser and the serializer use this
+/// same instance to avoid duplicating the 256-entry lookup table.
+pub(crate) static CRC8_DVB_S2: Crc<u8> = Crc::<u8>::new(&crc::CRC_8_DVB_S2);

@@ -31,7 +31,7 @@ fn test_write_and_read_packet_blocking() {
     // Mock reader
     let mut reader = &packet_bytes[..];
 
-    let mut crsf_reader = BlockingCrsfReader::new(&mut reader);
+    let mut crsf_reader = BlockingCrsfReader::<_, 128>::new(&mut reader);
     let result = crsf_reader.read_packet();
 
     let parsed_packet = result.unwrap();
@@ -54,7 +54,7 @@ fn test_write_and_read_packet_blocking() {
 #[test]
 fn test_read_packet_blocking_with_no_data() {
     let mut reader = &[][..];
-    let mut crsf_reader = BlockingCrsfReader::new(&mut reader);
+    let mut crsf_reader = BlockingCrsfReader::<_, 128>::new(&mut reader);
     let result = crsf_reader.read_packet();
     assert!(matches!(result, Err(CrsfStreamError::UnexpectedEof)));
 }
@@ -63,7 +63,7 @@ fn test_read_packet_blocking_with_no_data() {
 fn test_read_packet_blocking_with_incomplete_data() {
     let packet_bytes = build_link_statistics_packet_bytes();
     let mut reader = &packet_bytes[..packet_bytes.len() - 1];
-    let mut crsf_reader = BlockingCrsfReader::new(&mut reader);
+    let mut crsf_reader = BlockingCrsfReader::<_, 128>::new(&mut reader);
     let result = crsf_reader.read_packet();
     assert!(matches!(result, Err(CrsfStreamError::UnexpectedEof)));
 }
@@ -72,7 +72,7 @@ fn test_read_packet_blocking_with_incomplete_data() {
 fn test_read_packet_blocking_with_garbage() {
     let garbage = [0x01, 0x02, 0x03];
     let mut reader = &garbage[..];
-    let mut crsf_reader = BlockingCrsfReader::new(&mut reader);
+    let mut crsf_reader = BlockingCrsfReader::<_, 128>::new(&mut reader);
     let result = crsf_reader.read_packet();
     // We expect an InvalidSync error because the first byte is not a valid sync byte.
     assert!(matches!(result, Err(CrsfStreamError::InvalidSync(_))));

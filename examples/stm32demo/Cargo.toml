@@ -27,7 +27,7 @@ embassy-stm32 = { version = "0.2.0", features = [
 ] }
 embassy-sync = "0.7.0"
 embassy-time = { version = "0.4.0", features = ["tick-hz-32_768"] }
-embedded-io-async = "0.6.1"
+embedded-io-async = "0.7.0"
 
 
 panic-halt = "1.0.0"
