@@ -29,9 +29,21 @@ impl CrsfPacket for Attitude {
             return Err(CrsfParsingError::InvalidPayloadLength);
         }
         Ok(Self {
-            pitch: i16::from_be_bytes(data[0..2].try_into().expect("infallible")),
-            roll: i16::from_be_bytes(data[2..4].try_into().expect("infallible")),
-            yaw: i16::from_be_bytes(data[4..6].try_into().expect("infallible")),
+            pitch: i16::from_be_bytes(
+                data[0..2]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            roll: i16::from_be_bytes(
+                data[2..4]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            yaw: i16::from_be_bytes(
+                data[4..6]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
         })
     }
 

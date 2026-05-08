@@ -1,5 +1,6 @@
 use crate::packets::{CrsfPacket, PacketType};
 use crate::CrsfParsingError;
+use core::mem::size_of;
 
 /// Represents a Barometer packet (frame type `0x11`).
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -22,7 +23,7 @@ impl Barometer {
 
 impl CrsfPacket for Barometer {
     const PACKET_TYPE: PacketType = PacketType::Barometer;
-    const MIN_PAYLOAD_SIZE: usize = 8;
+    const MIN_PAYLOAD_SIZE: usize = 2 * size_of::<i32>();
 
     fn from_bytes(data: &[u8]) -> Result<Self, CrsfParsingError> {
         if data.len() != Self::MIN_PAYLOAD_SIZE {
@@ -30,8 +31,16 @@ impl CrsfPacket for Barometer {
         }
 
         Ok(Self {
-            pressure_pa: i32::from_be_bytes(data[0..4].try_into().expect("infallible")),
-            baro_temp: i32::from_be_bytes(data[4..8].try_into().expect("infallible")),
+            pressure_pa: i32::from_be_bytes(
+                data[0..4]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            baro_temp: i32::from_be_bytes(
+                data[4..8]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
         })
     }
 

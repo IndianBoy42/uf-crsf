@@ -1,5 +1,6 @@
 use crate::packets::remote::RemotePacket;
 use crate::CrsfParsingError;
+use core::mem::size_of;
 
 /// Timing Correction frame (0x3A), also known as "CRSF Shot" or "RC-Sync".
 ///
@@ -27,8 +28,7 @@ impl TimingCorrection {
 impl RemotePacket for TimingCorrection {
     /// Sub-type ID for Timing Correction.
     const SUB_TYPE: u8 = 0x10;
-    // interval (4) + offset (4) = 9 bytes
-    const MIN_PAYLOAD_SIZE: usize = 8;
+    const MIN_PAYLOAD_SIZE: usize = size_of::<u32>() + size_of::<i32>();
 
     fn to_bytes(&self, buffer: &mut [u8]) -> Result<usize, CrsfParsingError> {
         self.validate_buffer_size(buffer)?;
@@ -41,8 +41,16 @@ impl RemotePacket for TimingCorrection {
         if data.len() < Self::MIN_PAYLOAD_SIZE {
             return Err(CrsfParsingError::InvalidPayloadLength);
         }
-        let update_interval = u32::from_be_bytes(data[0..4].try_into().unwrap());
-        let offset = i32::from_be_bytes(data[4..8].try_into().unwrap());
+        let update_interval = u32::from_be_bytes(
+            data[0..4]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
+        let offset = i32::from_be_bytes(
+            data[4..8]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
         Ok(Self {
             update_interval,
             offset,

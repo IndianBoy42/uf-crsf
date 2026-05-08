@@ -9,7 +9,7 @@ use log::trace;
 ///
 /// This packet provides statistics about the connection quality.
 /// Uplink is the connection from the ground to the UAV and downlink the opposite direction.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct LinkStatistics {
     /// Uplink RSSI Antenna 1 (dBm * -1).

@@ -47,9 +47,21 @@ impl CrsfPacket for MavLinkSensor {
         Ok(Self {
             dst_addr: data[0],
             src_addr: data[1],
-            sensor_present: u32::from_be_bytes(data[2..6].try_into().expect("infallible")),
-            sensor_enabled: u32::from_be_bytes(data[6..10].try_into().expect("infallible")),
-            sensor_health: u32::from_be_bytes(data[10..14].try_into().expect("infallible")),
+            sensor_present: u32::from_be_bytes(
+                data[2..6]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            sensor_enabled: u32::from_be_bytes(
+                data[6..10]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            sensor_health: u32::from_be_bytes(
+                data[10..14]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
         })
     }
 

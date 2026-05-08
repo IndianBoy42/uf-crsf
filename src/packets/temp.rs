@@ -8,7 +8,7 @@ use heapless::Vec;
 /// Used to transmit temperature telemetry data from the vehicle to the transmitter.
 /// This frame can be used to report temperature readings from various sources on the vehicle,
 /// such as motors, ESCs, or the environment.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Temp {
     /// Identifies the source of the temperature data (e.g., 0 = FC, 1 = Ambient, etc.).
     pub temp_source_id: u8,

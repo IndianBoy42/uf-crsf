@@ -8,7 +8,7 @@ use heapless::Vec;
 /// Frame type used to transmit RPM (revolutions per minute) telemetry data from the craft
 /// to the transmitter. This frame can be used to report motor or propeller RPM for
 /// monitoring performance or diagnostics.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Rpm {
     /// Identifies the source of the RPM data (e.g., 0 = Motor 1, 1 = Motor 2, etc.).
     pub rpm_source_id: u8,

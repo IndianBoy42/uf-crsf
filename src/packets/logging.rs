@@ -73,12 +73,23 @@ impl CrsfPacket for Logging {
 
         let dst_addr = data[0];
         let src_addr = data[1];
-        let logtype = u16::from_be_bytes(data[2..4].try_into().expect("infallible"));
-        let timestamp = u32::from_be_bytes(data[4..8].try_into().expect("infallible"));
+        let logtype = u16::from_be_bytes(
+            data[2..4]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
+        let timestamp = u32::from_be_bytes(
+            data[4..8]
+                .try_into()
+                .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+        );
 
         let mut params = Vec::new();
         for chunk in data[8..].chunks_exact(4) {
-            let param = u32::from_be_bytes(chunk.try_into().expect("infallible"));
+            let param = u32::from_be_bytes(
+                chunk.try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            );
             if params.push(param).is_err() {
                 // This would mean we have more params than our Vec can hold.
                 return Err(CrsfParsingError::InvalidPayloadLength);

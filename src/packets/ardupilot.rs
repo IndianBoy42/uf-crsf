@@ -83,8 +83,16 @@ impl CrsfPacket for ArduPilotPassthrough {
                 if data.len() < 7 {
                     return Err(CrsfParsingError::InvalidPayloadLength);
                 }
-                let appid = u16::from_be_bytes(data[1..3].try_into().unwrap());
-                let data_val = u32::from_be_bytes(data[3..7].try_into().unwrap());
+                let appid = u16::from_be_bytes(
+                    data[1..3]
+                        .try_into()
+                        .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+                );
+                let data_val = u32::from_be_bytes(
+                    data[3..7]
+                        .try_into()
+                        .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+                );
                 Ok(ArduPilotPassthrough::Single {
                     appid,
                     data: data_val,
@@ -111,9 +119,16 @@ impl CrsfPacket for ArduPilotPassthrough {
                 let mut packets = Vec::new();
                 for i in 0..count {
                     let offset = 2 + i * 6;
-                    let appid = u16::from_be_bytes(data[offset..offset + 2].try_into().unwrap());
-                    let data_val =
-                        u32::from_be_bytes(data[offset + 2..offset + 6].try_into().unwrap());
+                    let appid = u16::from_be_bytes(
+                        data[offset..offset + 2]
+                            .try_into()
+                            .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+                    );
+                    let data_val = u32::from_be_bytes(
+                        data[offset + 2..offset + 6]
+                            .try_into()
+                            .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+                    );
                     packets
                         .push(PassthroughTelemetryPacket {
                             appid,

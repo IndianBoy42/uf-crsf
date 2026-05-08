@@ -6,7 +6,7 @@ use crate::CrsfParsingError;
 ///
 /// This frame is needed for synchronization with a GPS time pulse.
 /// The maximum offset of time is +/-10ms.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GpsTime {
     pub year: i16,

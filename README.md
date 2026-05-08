@@ -26,8 +26,9 @@ This library provides a two-layer API:
 
 - `🟢` - Implemented
 - `🔴` - Not Implemented
+- `🟡` - ExpressLRS-specific extension (not in CRSF spec)
 
-| Packet Name | Packet Address | Status |
+| Packet Name | Frame Type | Status |
 | :--- | :--- | :--- |
 | **Broadcast Frames** | | |
 | GPS | `0x02` | 🟢 |
@@ -41,7 +42,7 @@ This library provides a two-layer API:
 | RPM | `0x0C` | 🟢 |
 | TEMP | `0x0D` | 🟢 |
 | Voltages | `0x0E` | 🟢 |
-| Discontinued | `0x0F` | 🟢 |
+| Discontinued | `0x0F` | 🔴 |
 | VTX Telemetry | `0x10` | 🟢 |
 | Barometer | `0x11` | 🟢 |
 | Magnetometer | `0x12` | 🟢 |
@@ -59,21 +60,50 @@ This library provides a two-layer API:
 | **Extended Frames** | | |
 | Parameter Ping Devices | `0x28` | 🟢 |
 | Parameter Device Information | `0x29` | 🟢 |
-| Parameter Settings (Entry) | `0x2B` | 🔴 |
-| Parameter Settings (Read) | `0x2C` | 🔴 |
-| Parameter Value (Write) | `0x2D` | 🔴 |
+| Parameter Settings (Entry) | `0x2B` | 🟢 |
+| Parameter Settings (Read) | `0x2C` | 🟢 |
+| Parameter Value (Write) | `0x2D` | 🟢 |
+| ELRS Status | `0x2E` | 🟡 |
 | Direct Commands | `0x32` | 🟢 |
 | Logging | `0x34` | 🟢 |
 | Remote Related Frames | `0x3A` | 🟢 |
 | Game | `0x3C` | 🟢 |
 | KISSFC Reserved | `0x78 - 0x79` | 🔴 |
-| MSP Request | `0x7A` | 🔴 |
-| MSP Response | `0x7B` | 🔴 |
+| MSP Request | `0x7A` | 🟢 |
+| MSP Response | `0x7B` | 🟢 |
+| MSP Write | `0x7C` | 🔴 |
 | ArduPilot Legacy Reserved | `0x7F` | 🔴 |
 | ArduPilot Reserved Passthrough Frame | `0x80` | 🟢 |
 | mLRS Reserved | `0x81, 0x82` | 🔴 |
 | CRSF MAVLink Envelope | `0xAA` | 🟢 |
 | CRSF MAVLink System Status Sensor | `0xAC` | 🟢 |
+
+## Compliance Notes
+
+While the library implements most CRSF frame types, the following spec compliance issues are known:
+
+1. **Logging (0x34)**: The spec specifies a simple (broadcast) header, but the implementation
+   currently parses an extended header (expects destination + source addresses in payload).
+2. **MAVLink System Status Sensor (0xAC)**: The implementation adds destination and source
+   address fields that are not part of the spec's payload definition.
+3. **`write_packet_to_buffer()`**: The `PacketAddress` destination parameter is currently
+   ignored — all packets are written with sync byte `0xC8`. The argument is accepted but
+   unused.
+4. **Strict payload length checks**: Several packet parsers (`Battery`, `LinkStatistics`,
+   `RcChannelsPacked`, `MavLinkFc`) reject payloads that do not match the exact expected
+   size. The CRSF spec states that extra bytes should be tolerated and ignored.
+5. **Battery sensor units**: The spec in `spec/crsf.md` documents voltage and current as
+   "10 µV / 10 µA" (micro), which is a documentation error — real-world implementations
+   (and this library) use 10 mV / 10 mA (milli) units.
+
+### ExpressLRS Extensions
+
+The following features are ExpressLRS-specific and extend beyond the official CRSF spec:
+
+- **ELRS Status (0x2E)**: Link statistics with good/bad packet counts and status flags.
+- **Address 0xEF (ElrsLua)**: Custom device address for Lua script communication.
+- **VTX parameter type (15)**: An additional `ParameterDataType` variant in the parameter
+  settings protocol.
 
 ## Note
 

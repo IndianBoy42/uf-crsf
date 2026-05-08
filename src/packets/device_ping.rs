@@ -52,7 +52,7 @@ use crate::CrsfParsingError;
 ///
 /// // Expected responses: DeviceInformation from each device
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DevicePing {
     /// Destination address for the ping.

@@ -3,11 +3,18 @@ use crate::packets::PacketType;
 use crate::CrsfParsingError;
 
 /// Represents a Heartbeat packet.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Heartbeat {
     /// Origin device address.
     pub origin_address: i16,
+}
+
+impl Heartbeat {
+    /// Creates a new Heartbeat packet.
+    pub fn new(origin_address: i16) -> Result<Self, CrsfParsingError> {
+        Ok(Self { origin_address })
+    }
 }
 
 impl CrsfPacket for Heartbeat {

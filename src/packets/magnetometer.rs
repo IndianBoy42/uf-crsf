@@ -1,5 +1,6 @@
 use crate::packets::{CrsfPacket, PacketType};
 use crate::CrsfParsingError;
+use core::mem::size_of;
 
 /// Represents a Magnetometer packet (frame type `0x12`).
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -25,7 +26,7 @@ impl Magnetometer {
 
 impl CrsfPacket for Magnetometer {
     const PACKET_TYPE: PacketType = PacketType::Magnetometer;
-    const MIN_PAYLOAD_SIZE: usize = 6;
+    const MIN_PAYLOAD_SIZE: usize = 3 * size_of::<i16>();
 
     fn from_bytes(data: &[u8]) -> Result<Self, CrsfParsingError> {
         if data.len() != Self::MIN_PAYLOAD_SIZE {
@@ -33,9 +34,21 @@ impl CrsfPacket for Magnetometer {
         }
 
         Ok(Self {
-            field_x: i16::from_be_bytes(data[0..2].try_into().expect("infallible")),
-            field_y: i16::from_be_bytes(data[2..4].try_into().expect("infallible")),
-            field_z: i16::from_be_bytes(data[4..6].try_into().expect("infallible")),
+            field_x: i16::from_be_bytes(
+                data[0..2]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            field_y: i16::from_be_bytes(
+                data[2..4]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            field_z: i16::from_be_bytes(
+                data[4..6]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
         })
     }
 

@@ -141,9 +141,7 @@ impl CrsfPacket for Gps {
     const MIN_PAYLOAD_SIZE: usize = 2 * size_of::<i32>() + 3 * size_of::<u16>() + size_of::<u8>();
 
     fn to_bytes(&self, buffer: &mut [u8]) -> Result<usize, CrsfParsingError> {
-        if buffer.len() < Self::MIN_PAYLOAD_SIZE {
-            return Err(CrsfParsingError::BufferOverflow);
-        }
+        self.validate_buffer_size(buffer)?;
         buffer[0..4].copy_from_slice(&self.latitude.to_be_bytes());
         buffer[4..8].copy_from_slice(&self.longitude.to_be_bytes());
         buffer[8..10].copy_from_slice(&self.groundspeed.to_be_bytes());
@@ -160,11 +158,31 @@ impl CrsfPacket for Gps {
         }
 
         Ok(Self {
-            latitude: i32::from_be_bytes(data[0..4].try_into().expect("infallible")),
-            longitude: i32::from_be_bytes(data[4..8].try_into().expect("infallible")),
-            groundspeed: u16::from_be_bytes(data[8..10].try_into().expect("infallible")),
-            heading: u16::from_be_bytes(data[10..12].try_into().expect("infallible")),
-            altitude: u16::from_be_bytes(data[12..14].try_into().expect("infallible")),
+            latitude: i32::from_be_bytes(
+                data[0..4]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            longitude: i32::from_be_bytes(
+                data[4..8]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            groundspeed: u16::from_be_bytes(
+                data[8..10]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            heading: u16::from_be_bytes(
+                data[10..12]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            altitude: u16::from_be_bytes(
+                data[12..14]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
             satellites: data[14],
         })
     }

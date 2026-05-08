@@ -3,7 +3,7 @@ use crate::packets::PacketType;
 use crate::CrsfParsingError;
 
 /// Represents an ESP-NOW Messages packet.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EspNow {
     /// Used for Seat Position of the Pilot.

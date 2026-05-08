@@ -1,5 +1,6 @@
 use crate::packets::{CrsfPacket, PacketType};
 use crate::CrsfParsingError;
+use core::mem::size_of;
 
 /// Represents an Accel/Gyro packet (frame type `0x13`).
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -50,7 +51,7 @@ impl AccelGyro {
 
 impl CrsfPacket for AccelGyro {
     const PACKET_TYPE: PacketType = PacketType::AccelGyro;
-    const MIN_PAYLOAD_SIZE: usize = 18;
+    const MIN_PAYLOAD_SIZE: usize = size_of::<u32>() + 7 * size_of::<i16>();
 
     fn from_bytes(data: &[u8]) -> Result<Self, CrsfParsingError> {
         if data.len() != Self::MIN_PAYLOAD_SIZE {
@@ -58,14 +59,46 @@ impl CrsfPacket for AccelGyro {
         }
 
         Ok(Self {
-            sample_time: u32::from_be_bytes(data[0..4].try_into().expect("infallible")),
-            gyro_x: i16::from_be_bytes(data[4..6].try_into().expect("infallible")),
-            gyro_y: i16::from_be_bytes(data[6..8].try_into().expect("infallible")),
-            gyro_z: i16::from_be_bytes(data[8..10].try_into().expect("infallible")),
-            acc_x: i16::from_be_bytes(data[10..12].try_into().expect("infallible")),
-            acc_y: i16::from_be_bytes(data[12..14].try_into().expect("infallible")),
-            acc_z: i16::from_be_bytes(data[14..16].try_into().expect("infallible")),
-            gyro_temp: i16::from_be_bytes(data[16..18].try_into().expect("infallible")),
+            sample_time: u32::from_be_bytes(
+                data[0..4]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            gyro_x: i16::from_be_bytes(
+                data[4..6]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            gyro_y: i16::from_be_bytes(
+                data[6..8]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            gyro_z: i16::from_be_bytes(
+                data[8..10]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            acc_x: i16::from_be_bytes(
+                data[10..12]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            acc_y: i16::from_be_bytes(
+                data[12..14]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            acc_z: i16::from_be_bytes(
+                data[14..16]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
+            gyro_temp: i16::from_be_bytes(
+                data[16..18]
+                    .try_into()
+                    .map_err(|_e| CrsfParsingError::InvalidPayloadLength)?,
+            ),
         })
     }
 
